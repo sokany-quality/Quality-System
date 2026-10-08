@@ -1,0 +1,1476 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام إدارة ومتابعة جودة الإنتاج - المغربي للأجهزة المنزلية</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- SheetJS (xlsx) for Excel Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col">
+
+  <!-- Top Geometric Brand Band -->
+  <div class="brand-pattern-band no-print"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        
+        <!-- Logo & Title -->
+        <div class="flex items-center gap-3">
+          <!-- Sidebar Toggle Button (Mobile & Desktop) -->
+          <button id="sidebar-toggle-btn" onclick="App.toggleSidebar()" title="فتح / طي القائمة الجانبية" class="text-slate-600 hover:text-red-700 hover:bg-red-50 focus:outline-none p-2 rounded-xl border border-slate-200 transition">
+            <i class="fa-solid fa-bars-staggered text-lg"></i>
+          </button>
+
+          <!-- El Maghraby Official Emblem -->
+          <div class="w-10 h-10 rounded-xl bg-[#c8102e] flex items-center justify-center text-white font-extrabold text-2xl shadow-md shadow-red-700/20">
+            م
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-lg font-extrabold text-slate-900 leading-tight">المغربي <span class="text-xs font-semibold text-[#c8102e]">EL MAGHRABY</span></h1>
+              <span class="text-[10px] font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full border border-red-200">للأجهزة المنزلية</span>
+            </div>
+            <p class="text-xs text-slate-500 font-medium">نظام مراقبة وضمان الجودة وخطط الفحص الإحصائي (AQL)</p>
+          </div>
+        </div>
+
+        <!-- Quick Actions & User Switcher -->
+        <div class="flex items-center gap-2.5">
+          
+          <!-- Quick Receive Pallet Button -->
+          <button onclick="PalletModule.openReceiveModal()" class="inline-flex items-center gap-2 bg-[#c8102e] hover:bg-[#991b1b] text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition">
+            <i class="fa-solid fa-boxes-packing"></i>
+            <span class="hidden sm:inline">استلام بالته جديدة</span>
+          </button>
+
+          <!-- User Switcher Dropdown -->
+          <div class="flex items-center bg-slate-100 hover:bg-slate-200 rounded-xl p-1.5 border border-slate-200 transition">
+            <i class="fa-solid fa-user-shield text-[#c8102e] mr-1.5 ml-1 text-xs"></i>
+            <div class="text-xs">
+              <select id="user-switcher" class="bg-transparent text-slate-800 font-bold focus:outline-none cursor-pointer text-xs">
+                <!-- Dynamically populated -->
+              </select>
+            </div>
+          </div>
+
+          <div id="role-badge" class="hidden md:inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-800 border border-red-200">
+            مدير الجودة
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex-1 flex max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 gap-6">
+
+    <!-- Collapsible Sidebar Navigation -->
+    <aside id="sidebar" class="w-64 flex-shrink-0 bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm h-fit sticky top-24 no-print">
+      
+      <!-- Collapse toggle header inside sidebar -->
+      <div class="flex items-center justify-between pb-3 mb-2 border-b border-slate-100">
+        <span class="text-xs font-bold text-slate-400 sidebar-header-text uppercase tracking-wider">القائمة الرئيسية</span>
+        <button onclick="App.toggleSidebar()" class="text-slate-400 hover:text-slate-700 p-1 rounded-lg text-xs" title="تصغير القائمة">
+          <i id="sidebar-chevron-icon" class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+
+      <nav class="space-y-1" id="nav-tabs">
+        
+        <button onclick="App.switchTab('dashboard')" data-tab="dashboard" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-[#c8102e] bg-red-50 border border-red-100 transition">
+          <i class="fa-solid fa-chart-pie w-5 text-center text-[#c8102e]"></i>
+          <span class="nav-text">لوحة التحكم (Dashboard)</span>
+        </button>
+
+        <button onclick="App.switchTab('pallets')" data-tab="pallets" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-pallet w-5 text-center text-slate-500"></i>
+          <span class="nav-text">استلام وفحص البلتات</span>
+        </button>
+
+        <button onclick="App.switchTab('daily-breakdown')" data-tab="daily-breakdown" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-clock-rotate-left w-5 text-center text-slate-500"></i>
+          <span class="nav-text">الإنتاج والمفحوص والانتظار</span>
+        </button>
+
+        <button onclick="App.switchTab('line-summary')" data-tab="line-summary" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-chart-line w-5 text-center text-slate-500"></i>
+          <span class="nav-text">ملخص الجودة حسب الخط</span>
+        </button>
+
+        <div class="pt-3 pb-1 border-t border-slate-100 my-2">
+          <span class="text-[10px] font-bold text-slate-400 px-3 uppercase tracking-wider sidebar-section-title">بيانات المصنع</span>
+        </div>
+
+        <button onclick="App.switchTab('lines')" data-tab="lines" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-industry w-5 text-center text-slate-500"></i>
+          <span class="nav-text">خطوط التجميع</span>
+        </button>
+
+        <button onclick="App.switchTab('products')" data-tab="products" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-blender w-5 text-center text-slate-500"></i>
+          <span class="nav-text">الأجهزة والمنتجات</span>
+        </button>
+
+        <button onclick="App.switchTab('inspectors')" data-tab="inspectors" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-user-check w-5 text-center text-slate-500"></i>
+          <span class="nav-text">مراقبو الجودة والتكليفات</span>
+        </button>
+
+        <div class="pt-3 pb-1 border-t border-slate-100 my-2">
+          <span class="text-[10px] font-bold text-slate-400 px-3 uppercase tracking-wider sidebar-section-title">التحليل والمطابقة</span>
+        </div>
+
+        <button onclick="App.switchTab('aql-plans')" data-tab="aql-plans" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-table w-5 text-center text-slate-500"></i>
+          <span class="nav-text">جدول خطط الفحص AQL</span>
+        </button>
+
+        <button onclick="App.switchTab('reports')" data-tab="reports" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-file-invoice w-5 text-center text-slate-500"></i>
+          <span class="nav-text">التقارير والتصدير</span>
+        </button>
+
+        <button onclick="App.switchTab('search')" data-tab="search" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-magnifying-glass w-5 text-center text-slate-500"></i>
+          <span class="nav-text">البحث المتقدم والفلاتر</span>
+        </button>
+
+        <div class="pt-3 pb-1 border-t border-slate-100 my-2">
+          <span class="text-[10px] font-bold text-slate-400 px-3 uppercase tracking-wider sidebar-section-title">الإعدادات</span>
+        </div>
+
+        <button onclick="App.switchTab('settings')" data-tab="settings" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-sliders w-5 text-center text-slate-500"></i>
+          <span class="nav-text">إعدادات النظام</span>
+        </button>
+
+        <button onclick="App.switchTab('audit')" data-tab="audit" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-shield-halved w-5 text-center text-slate-500"></i>
+          <span class="nav-text">سجل العمليات والتدقيق</span>
+        </button>
+
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="mt-6 pt-3 border-t border-slate-100 text-xs text-slate-400 flex items-center justify-between sidebar-footer-text">
+        <span class="flex items-center gap-1.5 text-emerald-600 font-semibold text-[11px]">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          AQL Level II نشط
+        </span>
+        <span class="text-[10px]">المغربى v2.0</span>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 min-w-0">
+
+      <!-- ============================================================== -->
+      <!-- TAB 1: DASHBOARD (لوحة التحكم) -->
+      <!-- ============================================================== -->
+      <section id="tab-dashboard" class="tab-pane fade-in">
+        
+        <!-- Filter Bar -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-filter text-[#c8102e]"></i>
+            <span class="font-bold text-sm text-slate-700">تصفية لوحة التحكم:</span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2.5 text-sm">
+            <select id="dash-filter-preset" onchange="DashboardModule.handlePresetChange(this.value)" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-red-500">
+              <option value="today">اليوم</option>
+              <option value="yesterday">أمس</option>
+              <option value="last7">آخر 7 أيام</option>
+              <option value="this_month">هذا الشهر</option>
+              <option value="all">كل الفترات</option>
+              <option value="custom">نطاق مخصص</option>
+            </select>
+
+            <div id="dash-custom-dates" class="hidden flex items-center gap-1.5">
+              <input type="date" id="dash-date-from" class="bg-slate-50 border border-slate-300 rounded-xl px-2 py-1 text-xs">
+              <span class="text-xs text-slate-400">إلى</span>
+              <input type="date" id="dash-date-to" class="bg-slate-50 border border-slate-300 rounded-xl px-2 py-1 text-xs">
+            </div>
+
+            <select id="dash-filter-line" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
+              <option value="">جميع الخطوط</option>
+            </select>
+
+            <select id="dash-filter-shift" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
+              <option value="">جميع الورديات</option>
+            </select>
+
+            <button onclick="DashboardModule.load()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-4 py-1.5 rounded-xl font-bold text-xs shadow-sm transition">
+              تطبيق
+            </button>
+          </div>
+        </div>
+
+        <!-- Key Lifecycle Metric Cards (المستلم، في الانتظار، المفحوص، المقبول، المرفوض) -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 mb-6">
+          
+          <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <span class="text-xs font-semibold text-slate-500 flex items-center justify-between">
+              إجمالي المستلم / المنتج
+              <i class="fa-solid fa-boxes-packing text-blue-600"></i>
+            </span>
+            <div class="mt-2">
+              <span id="stat-produced" class="text-xl font-extrabold text-slate-900">0</span>
+              <span class="text-[10px] text-slate-400 block" id="stat-produced-sub">0 بالتة واردة</span>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/30 shadow-sm flex flex-col justify-between">
+            <span class="text-xs font-bold text-amber-800 flex items-center justify-between">
+              في انتظار الفحص
+              <i class="fa-solid fa-hourglass-half text-amber-600"></i>
+            </span>
+            <div class="mt-2">
+              <span id="stat-waiting-pallets" class="text-xl font-extrabold text-amber-700">0</span>
+              <span class="text-[10px] text-amber-600 block font-semibold" id="stat-waiting-qty">0 جهاز في الانتظار</span>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white p-4 rounded-2xl border border-indigo-200 bg-indigo-50/20 shadow-sm flex flex-col justify-between">
+            <span class="text-xs font-bold text-indigo-800 flex items-center justify-between">
+              عينات تم فحصها (AQL)
+              <i class="fa-solid fa-microscope text-indigo-600"></i>
+            </span>
+            <div class="mt-2">
+              <span id="stat-inspected" class="text-xl font-extrabold text-indigo-700">0</span>
+              <span class="text-[10px] text-indigo-500 block font-medium" id="stat-inspected-pallets">0 بالتة تم فحصها</span>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white p-4 rounded-2xl border border-emerald-200 bg-emerald-50/20 shadow-sm flex flex-col justify-between">
+            <span class="text-xs font-bold text-emerald-800 flex items-center justify-between">
+              بلتات مقبولة
+              <i class="fa-solid fa-circle-check text-emerald-600"></i>
+            </span>
+            <div class="mt-2">
+              <span id="stat-accepted-pallets" class="text-xl font-extrabold text-emerald-600">0</span>
+              <span class="text-[10px] text-emerald-700 block font-semibold">مطابقة لمعيار AQL</span>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white p-4 rounded-2xl border border-red-200 bg-red-50/20 shadow-sm flex flex-col justify-between">
+            <span class="text-xs font-bold text-red-800 flex items-center justify-between">
+              بلتات مرفوضة
+              <i class="fa-solid fa-circle-xmark text-red-600"></i>
+            </span>
+            <div class="mt-2">
+              <span id="stat-rejected-pallets" class="text-xl font-extrabold text-red-600">0</span>
+              <span class="text-[10px] text-red-700 block font-semibold">تجاوزت حد الرفض</span>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <span class="text-xs font-semibold text-slate-500 flex items-center justify-between">
+              نسبة الرفض العامة
+              <i class="fa-solid fa-percent text-[#c8102e]"></i>
+            </span>
+            <div class="mt-2">
+              <span id="stat-rejection-rate" class="text-xl font-extrabold text-slate-900">0%</span>
+              <span class="text-[10px] text-slate-400 block">معدل العيوب المكتشفة</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-chart-column text-[#c8102e]"></i>
+              مقارنة كميات الإنتاج والمفحوص والانتظار بين خطوط التجميع
+            </h3>
+            <div class="relative h-64">
+              <canvas id="chart-lines-comparison"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-bug text-red-600"></i>
+              أكثر عيوب الأجهزة المنزلية تكراراً (تحليل باريتو للعيوب)
+            </h3>
+            <div class="relative h-64">
+              <canvas id="chart-top-reasons"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Summary Table in Dashboard -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-table-list text-[#c8102e]"></i>
+              حالة فحص الخطوط الحالية (المستلم، قيد الانتظار، تم فحصه)
+            </h3>
+            <button onclick="App.switchTab('line-summary')" class="text-xs text-[#c8102e] hover:underline font-bold flex items-center gap-1">
+              عرض التفاصيل الكاملة <i class="fa-solid fa-arrow-left"></i>
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>خط الإنتاج</th>
+                  <th>مشرف الخط</th>
+                  <th>مراقب الجودة</th>
+                  <th>إجمالي البلتات</th>
+                  <th>في الانتظار</th>
+                  <th>تم فحصه</th>
+                  <th>مقبول</th>
+                  <th>مرفوض</th>
+                  <th>نسبة الرفض</th>
+                  <th>الحالة</th>
+                </tr>
+              </thead>
+              <tbody id="dash-lines-tbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 2: PALLET WORKFLOW (استلام وفحص البلتات) -->
+      <!-- ============================================================== -->
+      <section id="tab-pallets" class="tab-pane hidden fade-in">
+        
+        <!-- Controls & Filter Toolbar -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          
+          <div class="flex flex-wrap items-center gap-2.5">
+            <button onclick="PalletModule.openReceiveModal()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition">
+              <i class="fa-solid fa-plus-circle"></i>
+              <span>استلام بالته جديدة (وارد خط)</span>
+            </button>
+
+            <!-- Search -->
+            <div class="relative">
+              <input type="text" id="pallets-search-input" oninput="PalletModule.handleSearch(this.value)" placeholder="بحث برقم البالتة، الجهاز، المراقب..." class="w-60 bg-slate-50 border border-slate-300 text-xs rounded-xl px-3 py-2 pr-8 focus:ring-2 focus:ring-red-500">
+              <i class="fa-solid fa-search absolute right-3 top-2.5 text-slate-400 text-xs"></i>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <input type="date" id="pallets-filter-date" onchange="PalletModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-semibold">
+
+            <select id="pallets-filter-status" onchange="PalletModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 font-semibold">
+              <option value="">جميع حالات الفحص</option>
+              <option value="في انتظار الفحص">⏳ في انتظار الفحص</option>
+              <option value="جاري الفحص">⏱️ جاري الفحص</option>
+              <option value="تم الفحص">🔍 تم الفحص</option>
+            </select>
+
+            <select id="pallets-filter-line" onchange="PalletModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
+              <option value="">جميع الخطوط</option>
+            </select>
+
+            <select id="pallets-filter-decision" onchange="PalletModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
+              <option value="">القرارات (الكل)</option>
+              <option value="مقبول">مقبول فقط</option>
+              <option value="مرفوض">مرفوض فقط</option>
+              <option value="قيد الفحص">قيد الفحص</option>
+            </select>
+
+            <button onclick="PalletModule.exportExcel()" title="تصدير إلى إكسيل" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 transition">
+              <i class="fa-solid fa-file-excel text-emerald-600"></i> Excel
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Pallets Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>التاريخ ووقت الاستلام</th>
+                  <th>الخط</th>
+                  <th>رقم البالتة</th>
+                  <th>اسم الجهاز المنزلي</th>
+                  <th>الكمية</th>
+                  <th>حالة الفحص والتوقيت</th>
+                  <th>عينة AQL المطلوبة</th>
+                  <th>العينات المفحوصة</th>
+                  <th>العيوب المكتشفة</th>
+                  <th>حد الرفض (Re)</th>
+                  <th>قرار البالتة</th>
+                  <th>المراقب</th>
+                  <th class="text-center">إجراءات الفحص والقرار</th>
+                </tr>
+              </thead>
+              <tbody id="pallets-tbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+          <div id="pallets-empty" class="hidden text-center py-12 text-slate-400">
+            <i class="fa-solid fa-pallet text-4xl mb-3 text-slate-300"></i>
+            <p class="font-medium">لا توجد باليتات مسجلة مطابقة للبحث المحدد</p>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 3: DAILY PRODUCTION & WAITING BREAKDOWN (الإنتاج والمفحوص وقيد الانتظار) -->
+      <!-- ============================================================== -->
+      <section id="tab-daily-breakdown" class="tab-pane hidden fade-in">
+        
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-red-100 text-[#c8102e] flex items-center justify-center text-lg font-bold">
+              <i class="fa-solid fa-clock-rotate-left"></i>
+            </div>
+            <div>
+              <h2 class="font-bold text-sm text-slate-800">تقرير الإنتاج اليومي والمفحوص وقيد الانتظار</h2>
+              <p class="text-xs text-slate-500">حصر دقيق للأجهزة المستلمة اليوم، وما تم فحصه، وما ينتظر الفحص لليوم التالي</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 text-xs">
+            <label class="font-bold text-slate-700">تاريخ التقرير:</label>
+            <input type="date" id="daily-breakdown-date" onchange="DailyBreakdownModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 font-bold">
+            
+            <button onclick="DailyBreakdownModule.load()" class="bg-[#c8102e] text-white px-3.5 py-1.5 rounded-xl font-bold transition">
+              تحديث التقرير
+            </button>
+            <button onclick="DailyBreakdownModule.print()" class="bg-slate-800 text-white px-3.5 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-print ml-1"></i> طباعة التقرير
+            </button>
+          </div>
+        </div>
+
+        <div id="daily-breakdown-print-container" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="font-bold text-sm text-slate-800">تفصيل الأجهزة المنزلية: المستلم والمفحوص وقيد الانتظار</h3>
+            <span id="daily-breakdown-badge" class="text-xs font-semibold bg-white px-3 py-1 rounded-full border border-slate-200 text-slate-700">اليوم</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>كود الجهاز</th>
+                  <th>اسم المنتج / الجهاز</th>
+                  <th>خط التجميع</th>
+                  <th>إجمالي البلتات</th>
+                  <th>إجمالي الكمية المنتجة</th>
+                  <th>كمية تم فحصها</th>
+                  <th>كمية في انتظار الفحص</th>
+                  <th>عينات AQL المفحوصة</th>
+                  <th>العيوب المكتشفة</th>
+                  <th>بلتات مقبولة</th>
+                  <th>بلتات مرفوضة</th>
+                  <th>نسبة الرفض</th>
+                </tr>
+              </thead>
+              <tbody id="daily-breakdown-tbody">
+                <!-- Dynamically populated -->
+              </tbody>
+              <tfoot id="daily-breakdown-tfoot" class="bg-slate-100 font-bold border-t-2 border-slate-300">
+                <!-- Totals -->
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 4: LINE QUALITY SUMMARY (ملخص الجودة حسب الخط) -->
+      <!-- ============================================================== -->
+      <section id="tab-line-summary" class="tab-pane hidden fade-in">
+        
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-chart-line text-[#c8102e] text-lg"></i>
+            <div>
+              <h2 class="font-bold text-sm text-slate-800">ملخص ومؤشرات جودة خطوط تجميع الأجهزة المنزلية</h2>
+              <p class="text-xs text-slate-500">حسابات تلقائية فورية مع حماية ضد القسمة على صفر وانعكاس مباشر لنتائج الفحص</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <input type="date" id="summary-date-from" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+            <span class="text-xs text-slate-400">إلى</span>
+            <input type="date" id="summary-date-to" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+
+            <select id="summary-filter-shift" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+              <option value="">جميع الورديات</option>
+            </select>
+
+            <button onclick="SummaryModule.load()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-3.5 py-1.5 rounded-xl font-bold transition">
+              تحديث
+            </button>
+            <button onclick="SummaryModule.exportExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-file-excel ml-1"></i> Excel
+            </button>
+            <button onclick="SummaryModule.printReport()" class="bg-slate-800 text-white px-3 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-print ml-1"></i> طباعة التقرير
+            </button>
+          </div>
+        </div>
+
+        <div id="summary-print-container" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-600">ملخص أداء الجودة ومطابقة AQL حسب خط الإنتاج:</span>
+            <span id="summary-period-badge" class="text-xs font-semibold text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200">اليوم</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>رقم الخط</th>
+                  <th>مشرف الخط</th>
+                  <th>مراقب الجودة المكلف</th>
+                  <th>المنتج / الأجهزة</th>
+                  <th>إجمالي الإنتاج</th>
+                  <th>كمية الفحص (AQL)</th>
+                  <th>الكمية المرفوضة</th>
+                  <th>الكمية المقبولة</th>
+                  <th>نسبة الرفض %</th>
+                  <th>أسباب الرفض المجمعة</th>
+                  <th>بلتات مقبولة</th>
+                  <th>بلتات مرفوضة</th>
+                </tr>
+              </thead>
+              <tbody id="summary-tbody">
+                <!-- Populated -->
+              </tbody>
+              <tfoot id="summary-tfoot" class="bg-slate-100 font-bold border-t-2 border-slate-300">
+                <!-- Totals -->
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 5: AQL SAMPLING PLANS MANAGEMENT (جدول خطط الفحص AQL) -->
+      <!-- ============================================================== -->
+      <section id="tab-aql-plans" class="tab-pane hidden fade-in">
+        
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-lg bg-red-100 text-[#c8102e] flex items-center justify-center font-bold">
+                <i class="fa-solid fa-table"></i>
+              </div>
+              <h2 class="text-base font-bold text-slate-800">جدول خطط الفحص الإحصائي AQL (المستوى العام الثاني ISO 2859-1 Level II)</h2>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">
+              يحدد حجم عينة الفحص المسحوبة من البالتة وحد القبول (Ac) وحد الرفض (Re). يمكنك تعديل النطاقات أو إضافة حدود جديدة بسهولة.
+            </p>
+          </div>
+
+          <button onclick="AqlModule.openModal()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition">
+            <i class="fa-solid fa-plus-circle ml-1"></i> إضافة نطاق فحص جديد
+          </button>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>حجم الدفعة / البالتة (من)</th>
+                  <th>حجم الدفعة / البالتة (إلى)</th>
+                  <th>حجم العينة المطلوب سحبها</th>
+                  <th>أقصى عيوب مسموحة للقبول (Ac)</th>
+                  <th>أقل عدد عيوب لرفض البالتة (Re)</th>
+                  <th>المستوى / التوصيف</th>
+                  <th>ملاحظات</th>
+                  <th class="text-center">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="aql-tbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 6: LINES MANAGEMENT (خطوط الإنتاج) -->
+      <!-- ============================================================== -->
+      <section id="tab-lines" class="tab-pane hidden fade-in">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-base font-bold text-slate-800">إدارة خطوط تجميع الأجهزة المنزلية</h2>
+            <p class="text-xs text-slate-500">تهيئة وتعديل خطوط المصنع والمشرفين والمنتج الجاري تشغيله</p>
+          </div>
+          <button onclick="LinesModule.openModal()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition">
+            <i class="fa-solid fa-plus-circle ml-1"></i> إضافة خط إنتاج
+          </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="lines-cards-container">
+          <!-- Lines Cards -->
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 7: PRODUCTS (الأجهزة المنزلية) -->
+      <!-- ============================================================== -->
+      <section id="tab-products" class="tab-pane hidden fade-in">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-base font-bold text-slate-800">إدارة الأجهزة المنزلية والمنتجات</h2>
+            <p class="text-xs text-slate-500">تعريف أجهزة المغربي (خلاطات، كبات، مضارب، محضرات) ومواصفات الجودة</p>
+          </div>
+          <button onclick="ProductsModule.openModal()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition">
+            <i class="fa-solid fa-plus-circle ml-1"></i> إضافة جهاز جديد
+          </button>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>كود الجهاز</th>
+                  <th>اسم المنتج</th>
+                  <th>المواصفات الفنية القياسية</th>
+                  <th>الوزن / القدرة</th>
+                  <th>الوحدة</th>
+                  <th>خط التجميع الافتراضي</th>
+                  <th>المواصفة / الصلاحية</th>
+                  <th>الحالة</th>
+                  <th class="text-center">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="products-tbody">
+                <!-- Products -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 8: QUALITY INSPECTORS & ASSIGNMENTS (مراقبو الجودة) -->
+      <!-- ============================================================== -->
+      <section id="tab-inspectors" class="tab-pane hidden fade-in">
+        <div class="flex items-center justify-between border-b border-slate-200 mb-6 pb-2">
+          <div class="flex items-center gap-4">
+            <button onclick="InspectorsModule.switchSubTab('assignments')" id="subtab-btn-assignments" class="pb-2 font-bold text-sm text-[#c8102e] border-b-2 border-[#c8102e] transition">
+              <i class="fa-solid fa-clipboard-user ml-1.5"></i> التكليفات والمهام اليومية
+            </button>
+            <button onclick="InspectorsModule.switchSubTab('directory')" id="subtab-btn-directory" class="pb-2 font-bold text-sm text-slate-500 hover:text-slate-800 transition">
+              <i class="fa-solid fa-id-card-clip ml-1.5"></i> دليل مراقبي الجودة
+            </button>
+          </div>
+          <div id="inspector-action-btn-container">
+            <!-- Dynamic button -->
+          </div>
+        </div>
+
+        <div id="inspectors-subtab-assignments">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-bold text-slate-700">تاريخ التكليف:</span>
+              <input type="date" id="assignments-date" onchange="InspectorsModule.loadAssignments()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
+              <span class="text-xs font-bold text-slate-700 mr-2">الوردية:</span>
+              <select id="assignments-shift" onchange="InspectorsModule.loadAssignments()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
+                <option value="">جميع الورديات</option>
+              </select>
+            </div>
+            <span class="text-xs text-[#c8102e] bg-red-50 px-3 py-1.5 rounded-xl border border-red-100 font-semibold">
+              <i class="fa-solid fa-info-circle ml-1"></i> اختيار "على خط إنتاج - مراقب" يربط المراقب بالخط واستلام البلتات فوراً
+            </span>
+          </div>
+
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="custom-table text-sm">
+                <thead>
+                  <tr>
+                    <th>كود المراقب</th>
+                    <th>اسم مراقب الجودة</th>
+                    <th>الوردية</th>
+                    <th>المهمة اليومية</th>
+                    <th>رقم الخط المكلف به</th>
+                    <th>مشرف الخط</th>
+                    <th>ملاحظات</th>
+                    <th class="text-center">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody id="assignments-tbody">
+                  <!-- Assignments -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="inspectors-subtab-directory" class="hidden">
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <span class="text-xs font-bold text-slate-700">دليل مراقبي جودة المصنع:</span>
+              <button onclick="InspectorsModule.openInspectorModal()" class="bg-[#c8102e] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl">
+                + إضافة مراقب جودة
+              </button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="custom-table text-sm">
+                <thead>
+                  <tr>
+                    <th>الكود</th>
+                    <th>الاسم</th>
+                    <th>الهاتف</th>
+                    <th>التخصص والملاحظات</th>
+                    <th>الحالة</th>
+                    <th class="text-center">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody id="inspectors-tbody">
+                  <!-- Inspectors -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 9: REPORTS & EXPORT (التقارير والتصدير) -->
+      <!-- ============================================================== -->
+      <section id="tab-reports" class="tab-pane hidden fade-in">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6">
+          <h2 class="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+            <i class="fa-solid fa-file-invoice text-[#c8102e]"></i>
+            منظومة التقارير والتصدير المتقدمة (ترويسة شركة المغربي الرسمية)
+          </h2>
+          <p class="text-xs text-slate-500 mb-4">حدد نوع التقرير والفترة الزمنية والأعمدة لتصديرها مباشرة إلى Excel أو CSV أو الطباعة</p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 text-xs">
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">نوع التقرير:</label>
+              <select id="report-type" onchange="ReportsModule.handleTypeChange(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold">
+                <option value="daily">تقرير جودة الخطوط اليومي</option>
+                <option value="product_daily_breakdown">تقرير الإنتاج والمفحوص وقيد الانتظار للأجهزة</option>
+                <option value="waiting_pallets">تقرير البلتات في انتظار الفحص</option>
+                <option value="rejected_pallets">تقرير البلتات المرفوضة وأسباب الرفض</option>
+                <option value="rejection_reasons">تقرير تحليل عيوب الأجهزة المنزلية</option>
+                <option value="inspector_performance">تقرير كفاءة مراقبي الجودة</option>
+                <option value="line_production">تقرير إنتاج خطوط التجميع</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">من تاريخ:</label>
+              <input type="date" id="report-date-from" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs">
+            </div>
+
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">إلى تاريخ:</label>
+              <input type="date" id="report-date-to" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs">
+            </div>
+
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">خط التجميع:</label>
+              <select id="report-filter-line" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs">
+                <option value="">جميع الخطوط</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-700">تحديد الأعمدة المطلوبة للظهور في التقرير:</span>
+              <button onclick="ReportsModule.toggleAllColumns(true)" class="text-[11px] text-[#c8102e] hover:underline font-bold">تحديد الكل</button>
+            </div>
+            <div class="flex flex-wrap gap-2.5 text-xs" id="report-columns-checkboxes">
+              <!-- Checkboxes -->
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-200">
+            <button onclick="ReportsModule.generate()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-sm transition">
+              <i class="fa-solid fa-play ml-1"></i> توليد التقرير
+            </button>
+
+            <div class="flex items-center gap-2">
+              <button onclick="ReportsModule.exportExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition">
+                <i class="fa-solid fa-file-excel ml-1"></i> تصدير Excel
+              </button>
+              <button onclick="ReportsModule.exportCSV()" class="bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition">
+                <i class="fa-solid fa-file-csv ml-1"></i> CSV
+              </button>
+              <button onclick="ReportsModule.print()" class="bg-slate-900 hover:bg-black text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition">
+                <i class="fa-solid fa-print ml-1"></i> طباعة بترويسة المغربي الرسمية
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="report-preview-container" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <h3 id="report-preview-title" class="font-bold text-sm text-slate-800">معاينة التقرير</h3>
+            <span id="report-records-count" class="text-xs text-slate-600 font-bold bg-white px-3 py-1 rounded-full border border-slate-200">0 سجل</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm" id="report-preview-table">
+              <thead id="report-preview-thead"></thead>
+              <tbody id="report-preview-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 10: ADVANCED SEARCH & SAVED FILTERS (البحث والفلاتر) -->
+      <!-- ============================================================== -->
+      <section id="tab-search" class="tab-pane hidden fade-in">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 class="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <i class="fa-solid fa-magnifying-glass text-[#c8102e]"></i> البحث والفلاتر الشاملة
+            </h2>
+            <form id="adv-search-form" onsubmit="event.preventDefault(); SearchModule.execute();">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs mb-4">
+                <div><label class="block font-bold mb-1">من تاريخ:</label><input type="date" id="adv-date-from" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs"></div>
+                <div><label class="block font-bold mb-1">إلى تاريخ:</label><input type="date" id="adv-date-to" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs"></div>
+                <div><label class="block font-bold mb-1">خط الإنتاج:</label><select id="adv-line" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs"></select></div>
+                <div><label class="block font-bold mb-1">الجهاز المنزلي:</label><select id="adv-product" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs"></select></div>
+                <div><label class="block font-bold mb-1">رقم البالتة:</label><input type="number" id="adv-pallet-number" placeholder="مثال: 4" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs"></div>
+                <div><label class="block font-bold mb-1">الوردية:</label><select id="adv-shift" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs"></select></div>
+                <div><label class="block font-bold mb-1">حالة الفحص:</label>
+                  <select id="adv-status" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs">
+                    <option value="">جميع الحالات</option>
+                    <option value="في انتظار الفحص">في انتظار الفحص</option>
+                    <option value="جاري الفحص">جاري الفحص</option>
+                    <option value="تم الفحص">تم الفحص</option>
+                  </select>
+                </div>
+                <div><label class="block font-bold mb-1">قرار البالتة:</label>
+                  <select id="adv-decision" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs">
+                    <option value="">الكل</option>
+                    <option value="مقبول">مقبول</option>
+                    <option value="مرفوض">مرفوض</option>
+                    <option value="قيد الفحص">قيد الفحص</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between pt-3 border-t">
+                <div class="flex items-center gap-2">
+                  <button type="submit" class="bg-[#c8102e] text-white font-bold text-xs px-5 py-2.5 rounded-xl">تنفيذ البحث</button>
+                  <button type="button" onclick="SearchModule.reset()" class="bg-slate-100 text-slate-700 text-xs px-4 py-2.5 rounded-xl">إعادة ضبط</button>
+                </div>
+                <button type="button" onclick="SearchModule.openSaveFilterModal()" class="bg-amber-50 text-amber-800 border border-amber-300 text-xs font-bold px-4 py-2.5 rounded-xl">حفظ الفلتر</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h3 class="font-bold text-sm text-slate-800 mb-2 flex items-center gap-2">
+              <i class="fa-solid fa-bookmark text-amber-500"></i> الفلاتر المحفوظة
+            </h3>
+            <div id="saved-filters-list" class="space-y-2 flex-1 overflow-y-auto max-h-96"></div>
+          </div>
+        </div>
+
+        <div class="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 bg-slate-50 border-b flex items-center justify-between">
+            <h3 class="font-bold text-sm text-slate-800">نتائج البحث</h3>
+            <span id="search-results-count" class="text-xs font-bold text-slate-500 bg-white px-2.5 py-1 rounded-full border">0 نتيجة</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>تاريخ الاستلام</th>
+                  <th>الخط</th>
+                  <th>رقم البالتة</th>
+                  <th>الجهاز</th>
+                  <th>الكمية</th>
+                  <th>حالة الفحص</th>
+                  <th>المفحوص</th>
+                  <th>المرفوض</th>
+                  <th>القرار</th>
+                  <th>المراقب</th>
+                  <th class="text-center">إجراء</th>
+                </tr>
+              </thead>
+              <tbody id="search-results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 11: SETTINGS (إعدادات النظام والقوائم) -->
+      <!-- ============================================================== -->
+      <section id="tab-settings" class="tab-pane hidden fade-in">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="flex border-b border-slate-200 bg-slate-50 px-4 overflow-x-auto gap-4">
+            <button onclick="SettingsModule.switchSubTab('reasons')" id="set-tab-reasons" class="py-3 px-2 font-bold text-xs text-[#c8102e] border-b-2 border-[#c8102e] whitespace-nowrap">عيوب الأجهزة</button>
+            <button onclick="SettingsModule.switchSubTab('tasks')" id="set-tab-tasks" class="py-3 px-2 font-bold text-xs text-slate-500 whitespace-nowrap">مهام المراقبين</button>
+            <button onclick="SettingsModule.switchSubTab('shifts')" id="set-tab-shifts" class="py-3 px-2 font-bold text-xs text-slate-500 whitespace-nowrap">الورديات</button>
+            <button onclick="SettingsModule.switchSubTab('supervisors')" id="set-tab-supervisors" class="py-3 px-2 font-bold text-xs text-slate-500 whitespace-nowrap">مشرفو الإنتاج</button>
+            <button onclick="SettingsModule.switchSubTab('users')" id="set-tab-users" class="py-3 px-2 font-bold text-xs text-slate-500 whitespace-nowrap">المستخدمون والصلاحيات</button>
+          </div>
+
+          <div class="p-6">
+            <div id="set-pane-reasons">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs font-bold text-slate-700">قائمة عيوب وأسباب الرفض للأجهزة المنزلية:</span>
+                <button onclick="SettingsModule.openReasonModal()" class="bg-[#c8102e] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl">+ إضافة عيب جديد</button>
+              </div>
+              <table class="custom-table text-sm">
+                <thead><tr><th>الكود</th><th>سبب العيب</th><th>التصنيف</th><th class="text-center">حذف</th></tr></thead>
+                <tbody id="settings-reasons-tbody"></tbody>
+              </table>
+            </div>
+
+            <div id="set-pane-tasks" class="hidden">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs font-bold text-slate-700">المهام اليومية لمراقبي الجودة:</span>
+              </div>
+              <table class="custom-table text-sm">
+                <thead><tr><th>الكود</th><th>اسم المهمة</th><th>تتطلب خط إنتاج؟</th></tr></thead>
+                <tbody id="settings-tasks-tbody"></tbody>
+              </table>
+            </div>
+
+            <div id="set-pane-shifts" class="hidden">
+              <table class="custom-table text-sm">
+                <thead><tr><th>الكود</th><th>الوردية</th><th>البدء</th><th>الانتهاء</th></tr></thead>
+                <tbody id="settings-shifts-tbody"></tbody>
+              </table>
+            </div>
+
+            <div id="set-pane-supervisors" class="hidden">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs font-bold text-slate-700">مشرفو خطوط الإنتاج:</span>
+                <button onclick="SettingsModule.openSupervisorModal()" class="bg-[#c8102e] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl">+ إضافة مشرف</button>
+              </div>
+              <table class="custom-table text-sm">
+                <thead><tr><th>الاسم</th><th>الهاتف</th><th>ملاحظات</th><th class="text-center">حذف</th></tr></thead>
+                <tbody id="settings-supervisors-tbody"></tbody>
+              </table>
+            </div>
+
+            <div id="set-pane-users" class="hidden">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs font-bold text-slate-700">المستخدمون والصلاحيات:</span>
+                <button onclick="SettingsModule.openUserModal()" class="bg-[#c8102e] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl">+ إضافة مستخدم</button>
+              </div>
+              <table class="custom-table text-sm">
+                <thead><tr><th>المستخدم</th><th>الاسم الكامل</th><th>الدور</th><th>تاريخ الإنشاء</th><th class="text-center">حذف</th></tr></thead>
+                <tbody id="settings-users-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 12: AUDIT LOGS (سجل العمليات والتدقيق) -->
+      <!-- ============================================================== -->
+      <section id="tab-audit" class="tab-pane hidden fade-in">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-base font-bold text-slate-800">سجل العمليات وتدقيق التغييرات (Audit Trail)</h2>
+            <p class="text-xs text-slate-500">توثيق دقيق لكل عملية استلام، فحص، تعديل للقرار، وتغيير للحالة بالوقت والمستخدم</p>
+          </div>
+          <button onclick="AuditModule.load()" class="bg-slate-100 text-slate-700 font-bold text-xs px-3.5 py-2 rounded-xl">
+            <i class="fa-solid fa-arrows-rotate ml-1"></i> تحديث
+          </button>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>الوقت والتاريخ</th>
+                  <th>المستخدم</th>
+                  <th>نوع الإجراء</th>
+                  <th>الجدول</th>
+                  <th>بيان العملية</th>
+                  <th>التفاصيل</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- MODALS -->
+  <!-- ==================================================================== -->
+
+  <!-- 1. RECEIVE PALLET MODAL (المرحلة الأولى: تسجيل استلام البالتة) -->
+  <div id="modal-receive-pallet" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 max-h-[92vh] overflow-y-auto fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-red-100 text-[#c8102e] flex items-center justify-center font-bold">
+            <i class="fa-solid fa-boxes-packing"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">استلام بالته جديدة (وارد خط الإنتاج)</h3>
+            <p class="text-[11px] text-slate-500">تسجيل بيانات البالتة وتحديد حجم عينة الفحص الإحصائي AQL تلقائياً</p>
+          </div>
+        </div>
+        <button onclick="PalletModule.closeReceiveModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="receive-pallet-form" onsubmit="event.preventDefault(); PalletModule.submitReceive();" class="space-y-3.5 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">تاريخ الاستلام <span class="text-red-500">*</span></label>
+            <input type="date" id="rec-date" required onchange="PalletModule.handleReceiveContextChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">وقت الاستلام التلقائي <span class="text-red-500">*</span></label>
+            <input type="time" id="rec-time" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-[#c8102e]">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">الوردية <span class="text-red-500">*</span></label>
+            <select id="rec-shift" required onchange="PalletModule.handleReceiveContextChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold"></select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">خط التجميع <span class="text-red-500">*</span></label>
+            <select id="rec-line" required onchange="PalletModule.handleReceiveLineChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">رقم البالتة <span class="text-red-500">*</span></label>
+            <input type="number" id="rec-pallet-number" min="1" required placeholder="مثال: 5" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-[#c8102e]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">الكمية على البالتة (عدد الأجهزة) <span class="text-red-500">*</span></label>
+            <input type="number" id="rec-qty" min="1" required placeholder="مثال: 120" oninput="PalletModule.updateReceiveAqlCard(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-blue-700">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">الجهاز المنزلي على الخط <span class="text-red-500">*</span></label>
+          <select id="rec-product" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold"></select>
+        </div>
+
+        <!-- Live AQL Sampling Plan Card -->
+        <div id="rec-aql-box" class="p-3.5 bg-red-50/60 rounded-2xl border border-red-200">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-bold text-red-900 flex items-center gap-1.5">
+              <i class="fa-solid fa-calculator text-[#c8102e]"></i>
+              خطة الفحص المقررة طبقاً لـ AQL المستوى العام الثاني:
+            </span>
+            <span class="text-[10px] font-bold bg-white text-red-800 px-2 py-0.5 rounded-full border border-red-200" id="rec-aql-range-label">النطاق القياسي</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="bg-white p-2 rounded-xl border border-red-100">
+              <span class="block text-[10px] text-slate-500">عينة الفحص المطلوبة</span>
+              <span id="rec-sample-size" class="text-base font-extrabold text-indigo-700">20 جهاز</span>
+            </div>
+            <div class="bg-white p-2 rounded-xl border border-red-100">
+              <span class="block text-[10px] text-slate-500">حد القبول (Ac)</span>
+              <span id="rec-ac-limit" class="text-base font-extrabold text-emerald-600">≤ 2 عيوب</span>
+            </div>
+            <div class="bg-white p-2 rounded-xl border border-red-100">
+              <span class="block text-[10px] text-slate-500">حد الرفض (Re)</span>
+              <span id="rec-re-limit" class="text-base font-extrabold text-red-600">≥ 3 عيوب</span>
+            </div>
+          </div>
+          <span class="text-[10.5px] text-red-700 block mt-2 font-medium">
+            💡 ملاحظة للمستلم: سيتم سحب عدد <b id="rec-note-sample">20</b> جهاز، وفي حال ظهور <b id="rec-note-reject">3</b> عيوب فأكثر ترفض البالتة فوراً.
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">مراقب الجودة المسند:</label>
+            <select id="rec-inspector" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-semibold"></select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">حالة البالتة الأولية:</label>
+            <select id="rec-status" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-amber-700">
+              <option value="في انتظار الفحص">⏳ في انتظار الفحص (افتراضي)</option>
+              <option value="جاري الفحص">⏱️ جاري الفحص الآن</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">ملاحظات الاستلام:</label>
+          <input type="text" id="rec-notes" placeholder="ملاحظات حول حالة البالتة أو التغليف..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t">
+          <button type="button" onclick="PalletModule.closeReceiveModal()" class="px-4 py-2 text-slate-600 font-semibold">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold px-6 py-2.5 rounded-xl shadow-md transition">حفظ واستلام البالتة</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. INSPECT PALLET MODAL (المرحلة الثانية: فحص البالتة وتسجيل العيوب والقرار) -->
+  <div id="modal-inspect-pallet" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 max-h-[92vh] overflow-y-auto fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+            <i class="fa-solid fa-microscope"></i>
+          </div>
+          <div>
+            <h3 id="inspect-modal-title" class="font-bold text-slate-900 text-base">تسجيل نتائج فحص البالتة واحتساب القرار</h3>
+            <p class="text-[11px] text-slate-500">توثيق أوقات الفحص، العينات المفحوصة، توزيع العيوب، وأزرار التحكم بالقرار</p>
+          </div>
+        </div>
+        <button onclick="PalletModule.closeInspectModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="inspect-pallet-form" onsubmit="event.preventDefault(); PalletModule.submitInspection();" class="space-y-4 text-xs">
+        <input type="hidden" id="insp-pallet-id">
+
+        <!-- Pallet Header Info Strip -->
+        <div class="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span class="text-slate-400 block text-[10px]">البالتة والخط:</span>
+            <span id="insp-header-pallet" class="font-extrabold text-slate-900 text-sm">#12 (خط 1)</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[10px]">الجهاز المنزلي:</span>
+            <span id="insp-header-product" class="font-bold text-slate-800">خلاط منزلي 1.5 لتر</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[10px]">حجم البالتة الكلي:</span>
+            <span id="insp-header-qty" class="font-extrabold text-blue-700">120 جهاز</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[10px]">خطة AQL المقررة:</span>
+            <span id="insp-header-aql" class="font-bold text-indigo-700">عينة 20 | Ac: 2 | Re: 3</span>
+          </div>
+        </div>
+
+        <!-- Inspection Times Tracking -->
+        <div class="p-3 bg-blue-50/40 rounded-2xl border border-blue-200 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-blue-900">تاريخ ووقت الفحص:</span>
+            <input type="date" id="insp-date" class="bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs">
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-slate-600">بدء الفحص:</span>
+            <input type="time" id="insp-start-time" class="bg-white border border-blue-300 rounded-lg px-2 py-1 font-bold text-blue-700">
+            <span class="text-slate-600 mr-2">إنهاء الفحص:</span>
+            <input type="time" id="insp-end-time" class="bg-white border border-blue-300 rounded-lg px-2 py-1 font-bold text-emerald-700">
+          </div>
+        </div>
+
+        <!-- Samples & Defect Quantities -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block font-bold mb-1">حجم العينة المفحوصة <span class="text-red-500">*</span></label>
+            <input type="number" id="insp-samples-qty" min="1" required oninput="PalletModule.calculateLiveInspectionDecision()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-indigo-700">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">إجمالي العيوب المكتشفة <span class="text-red-500">*</span></label>
+            <input type="number" id="insp-defects-qty" min="0" value="0" required oninput="PalletModule.calculateLiveInspectionDecision()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-red-700">
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="block font-bold mb-1">حالة الفحص الآن:</label>
+            <select id="insp-status-select" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-emerald-800">
+              <option value="تم الفحص">🔍 تم الفحص بالكامل</option>
+              <option value="جاري الفحص">⏱️ جاري الفحص (مستمر)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Decision Box & Manual Override Buttons -->
+        <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <span class="text-xs font-bold text-slate-700 block">قرار البالتة وطريقة الاعتماد:</span>
+              <span class="text-[11px] text-slate-500" id="insp-calc-explanation">حسب معيار AQL</span>
+            </div>
+            
+            <div id="insp-live-decision-badge" class="px-3.5 py-1.5 rounded-full text-xs font-extrabold badge-accepted">
+              مقبول ✓
+            </div>
+          </div>
+
+          <!-- Decision Mode Override Buttons -->
+          <div class="flex items-center gap-2 pt-2 border-t border-slate-200">
+            <span class="text-[11px] font-bold text-slate-600">اختيار القرار:</span>
+            
+            <button type="button" id="btn-mode-auto" onclick="PalletModule.setDecisionMode('auto')" class="px-3 py-1.5 rounded-xl font-bold text-xs bg-red-100 text-[#c8102e] border border-red-300 transition">
+              <i class="fa-solid fa-robot ml-1"></i> احتساب تلقائي (AQL)
+            </button>
+
+            <button type="button" id="btn-mode-accept" onclick="PalletModule.setDecisionMode('manual_accept')" class="px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-100 text-slate-700 hover:bg-emerald-100 hover:text-emerald-800 transition">
+              <i class="fa-solid fa-check ml-1"></i> قبول يدوي
+            </button>
+
+            <button type="button" id="btn-mode-reject" onclick="PalletModule.setDecisionMode('manual_reject')" class="px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-800 transition">
+              <i class="fa-solid fa-xmark ml-1"></i> رفض يدوي
+            </button>
+            <input type="hidden" id="insp-decision-mode" value="auto">
+          </div>
+        </div>
+
+        <!-- Defect Reasons Section -->
+        <div id="insp-defects-section" class="p-3.5 border border-red-200 bg-red-50/40 rounded-2xl">
+          <div class="flex items-center justify-between mb-2">
+            <label class="block font-bold text-red-900 text-xs">
+              <i class="fa-solid fa-bug text-[#c8102e] ml-1"></i>
+              توزيع عيوب الأجهزة المنزلية المسجلة:
+            </label>
+            <button type="button" onclick="PalletModule.addInspectReasonRow()" class="text-red-800 bg-red-100 hover:bg-red-200 px-2.5 py-1 rounded-lg text-[11px] font-bold transition">
+              + إضافة عيب آخر
+            </button>
+          </div>
+          <div id="insp-reasons-rows" class="space-y-2"></div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">ملاحظات الفحص النهائي:</label>
+          <input type="text" id="insp-notes" placeholder="أي ملاحظات حول العيوب أو إجراءات الإصلاح..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t">
+          <button type="button" onclick="PalletModule.closeInspectModal()" class="px-4 py-2 text-slate-600 font-semibold">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold px-6 py-2.5 rounded-xl shadow-md transition">اعتماد وحفظ نتائج الفحص</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. AQL PLAN MODAL (إضافة / تعديل نطاق AQL) -->
+  <div id="modal-aql" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 id="modal-aql-title" class="font-bold text-slate-900 text-base">نطاق فحص AQL جديد</h3>
+        <button onclick="AqlModule.closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="aql-form" onsubmit="event.preventDefault(); AqlModule.save();" class="space-y-3 text-xs">
+        <input type="hidden" id="aql-id">
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">حجم الدفعة من:</label>
+            <input type="number" id="aql-min" min="1" required placeholder="100" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">حجم الدفعة إلى:</label>
+            <input type="number" id="aql-max" min="1" required placeholder="150" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">حجم العينة المطلوبة (Sample Size):</label>
+          <input type="number" id="aql-samples" min="1" required placeholder="20" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-indigo-700">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">حد القبول (Ac):</label>
+            <input type="number" id="aql-ac" min="0" required placeholder="2" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-emerald-600">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">حد الرفض (Re):</label>
+            <input type="number" id="aql-re" min="1" required placeholder="3" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-red-600">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">ملاحظات / توصيف النطاق:</label>
+          <input type="text" id="aql-notes" placeholder="فحص قياسي لمصنع الأجهزة..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="AqlModule.closeModal()" class="px-3.5 py-1.5 rounded-xl text-slate-600 font-semibold">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] text-white font-bold px-5 py-2 rounded-xl">حفظ النطاق</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Standard Modals: Line, Product, Inspector, Assignment, Settings, Confirm Delete -->
+  <!-- Line Modal -->
+  <div id="modal-line" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 id="modal-line-title" class="font-bold text-slate-800 text-base">إضافة خط تجميع</h3>
+        <button onclick="LinesModule.closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="line-form" onsubmit="event.preventDefault(); LinesModule.save();" class="space-y-3 text-xs">
+        <input type="hidden" id="line-id">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block font-bold mb-1">رقم الخط:</label><input type="number" id="l-number" required class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+          <div><label class="block font-bold mb-1">اسم الخط:</label><input type="text" id="l-name" required placeholder="خط تجميع الخلاطات" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+        </div>
+        <div><label class="block font-bold mb-1">مشرف الخط:</label><input type="text" id="l-supervisor" required class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+        <div><label class="block font-bold mb-1">الجهاز الحالي:</label><select id="l-product" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></select></div>
+        <div><label class="block font-bold mb-1">حالة الخط:</label>
+          <select id="l-status" class="w-full bg-slate-50 border rounded-xl px-3 py-2">
+            <option value="نشط">نشط</option><option value="متوقف">متوقف</option><option value="صيانة">صيانة</option>
+          </select>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="LinesModule.closeModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] text-white font-bold px-4 py-2 rounded-xl">حفظ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Product Modal -->
+  <div id="modal-product" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 id="modal-product-title" class="font-bold text-slate-800 text-base">إضافة جهاز منزلي</h3>
+        <button onclick="ProductsModule.closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="product-form" onsubmit="event.preventDefault(); ProductsModule.save();" class="space-y-3 text-xs">
+        <input type="hidden" id="prod-id">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block font-bold mb-1">كود الجهاز:</label><input type="text" id="prod-code" required placeholder="MG-BL500" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+          <div><label class="block font-bold mb-1">اسم الجهاز:</label><input type="text" id="prod-name" required placeholder="خلاط منزلي توب ماكس" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+        </div>
+        <div><label class="block font-bold mb-1">المواصفات الفنية:</label><input type="text" id="prod-specs" placeholder="500 وات، 1.5 لتر..." class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block font-bold mb-1">الوزن / القدرة:</label><input type="text" id="prod-weight" placeholder="2.4 كجم" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
+          <div><label class="block font-bold mb-1">خط التجميع الافتراضي:</label><select id="prod-line" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></select></div>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="ProductsModule.closeModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] text-white font-bold px-4 py-2 rounded-xl">حفظ الجهاز</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Inspector Modal -->
+  <div id="modal-inspector" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 id="modal-inspector-title" class="font-bold text-slate-800 text-base">إضافة مراقب جودة</h3>
+        <button onclick="InspectorsModule.closeInspectorModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="inspector-form" onsubmit="event.preventDefault(); InspectorsModule.saveInspector();" class="space-y-3 text-xs">
+        <input type="hidden" id="insp-id">
+        <div><label class="block font-bold mb-1">كود المراقب:</label><input type="text" id="insp-code" required placeholder="QC-05" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+        <div><label class="block font-bold mb-1">اسم المراقب:</label><input type="text" id="insp-name" required class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+        <div><label class="block font-bold mb-1">الهاتف:</label><input type="text" id="insp-phone" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
+        <div><label class="block font-bold mb-1">التخصص / ملاحظات:</label><input type="text" id="insp-notes" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="InspectorsModule.closeInspectorModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] text-white font-bold px-4 py-2 rounded-xl">حفظ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Assignment Modal -->
+  <div id="modal-assignment" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 class="font-bold text-slate-800 text-base">تكليف يومي لمراقب الجودة</h3>
+        <button onclick="InspectorsModule.closeAssignmentModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="assignment-form" onsubmit="event.preventDefault(); InspectorsModule.saveAssignment();" class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block font-bold mb-1">التاريخ:</label><input type="date" id="as-date" required class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
+          <div><label class="block font-bold mb-1">الوردية:</label><select id="as-shift" required class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></select></div>
+        </div>
+        <div><label class="block font-bold mb-1">مراقب الجودة:</label><select id="as-inspector" required class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></select></div>
+        <div><label class="block font-bold mb-1">المهمة اليومية:</label><select id="as-task" required onchange="InspectorsModule.handleTaskChange(this.value)" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold text-blue-700"></select></div>
+        <div id="as-line-container" class="p-3 bg-red-50 rounded-xl border border-red-200">
+          <label class="block font-bold text-red-900 mb-1">خط التجميع المكلف به:</label>
+          <select id="as-line" class="w-full bg-white border border-red-300 rounded-xl px-3 py-2 font-bold"></select>
+          <span class="text-[10px] text-red-700 block mt-1">يظهر اسم هذا المراقب تلقائياً في ملخص الخط واستلام بلتاته</span>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="InspectorsModule.closeAssignmentModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] text-white font-bold px-4 py-2 rounded-xl">حفظ التكليف</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Generic Lookups Modal -->
+  <div id="modal-generic" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 id="modal-generic-title" class="font-bold text-slate-800 text-base">إضافة عنصر</h3>
+        <button onclick="SettingsModule.closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div id="modal-generic-body"></div>
+    </div>
+  </div>
+
+  <!-- Save Filter Modal -->
+  <div id="modal-save-filter" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 class="font-bold text-slate-800 text-sm">حفظ الفلتر الحالي</h3>
+        <button onclick="SearchModule.closeSaveFilterModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div><label class="block font-bold mb-1">اسم الفلتر:</label><input type="text" id="save-filter-name" placeholder="بلتات في انتظار فحص الخلاطات" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button onclick="SearchModule.closeSaveFilterModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
+          <button onclick="SearchModule.saveCurrentFilter()" class="bg-[#c8102e] text-white font-bold px-4 py-2 rounded-xl">حفظ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div id="modal-confirm" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center fade-in">
+      <div class="w-12 h-12 rounded-full bg-red-100 text-[#c8102e] mx-auto flex items-center justify-center text-xl mb-3">
+        <i class="fa-solid fa-trash"></i>
+      </div>
+      <h3 class="font-bold text-slate-800 text-base mb-1">تأكيد عملية الحذف</h3>
+      <p id="confirm-message" class="text-xs text-slate-500 mb-5">هل أنت متأكد من الحذف النهائي؟</p>
+      <div class="flex items-center justify-center gap-3">
+        <button id="btn-confirm-cancel" class="px-4 py-2 rounded-xl text-slate-600 text-xs font-bold">إلغاء</button>
+        <button id="btn-confirm-ok" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-5 py-2.5 rounded-xl transition">تأكيد الحذف</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/exports.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

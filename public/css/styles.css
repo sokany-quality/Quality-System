@@ -1,0 +1,255 @@
+/* El Maghraby Home Appliances - Quality Management System Stylesheet */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  /* El Maghraby Official Crimson Red Identity */
+  --primary: #c8102e;
+  --primary-dark: #991b1b;
+  --primary-light: #ef4444;
+  --primary-subtle: #fef2f2;
+  --accent: #b91c1c;
+  --success: #15803d;
+  --danger: #dc2626;
+  --warning: #b45309;
+  --bg-main: #f8fafc;
+  --card-bg: #ffffff;
+  --border-color: #e2e8f0;
+}
+
+* {
+  font-family: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-main);
+  direction: rtl;
+  text-align: right;
+  color: #1e293b;
+  overflow-x: hidden;
+  transition: all 0.3s ease;
+}
+
+/* El Maghraby Pattern Header Band */
+.brand-pattern-band {
+  height: 6px;
+  background: linear-gradient(90deg, #c8102e 0%, #e11d48 50%, #c8102e 100%);
+  background-size: 20px 20px;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c8102e;
+}
+
+/* Sidebar Toggle Transitions */
+#sidebar {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#sidebar.collapsed {
+  width: 72px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+#sidebar.collapsed .nav-text,
+#sidebar.collapsed .sidebar-header-text,
+#sidebar.collapsed .sidebar-section-title,
+#sidebar.collapsed .sidebar-footer-text {
+  display: none !important;
+}
+
+#sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+#sidebar.collapsed .nav-item i {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+/* Cards & Stats */
+.stat-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+}
+
+/* Status Badges */
+.badge-status-waiting {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.badge-status-inprogress {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  position: relative;
+}
+
+.badge-status-completed {
+  background-color: #f3e8ff;
+  color: #6b21a8;
+  border: 1px solid #e9d5ff;
+}
+
+.badge-accepted {
+  background-color: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+
+.badge-rejected {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.badge-pending {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+/* Time Chips */
+.time-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.time-chip-received {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.time-chip-started {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.time-chip-completed {
+  background-color: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+/* Toast Notifications */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 440px;
+}
+
+.toast {
+  animation: slideIn 0.3s ease-out;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.toast-success { background-color: #059669; }
+.toast-error { background-color: #c8102e; }
+.toast-info { background-color: #1e40af; }
+.toast-warning { background-color: #d97706; }
+
+/* Custom Table */
+.custom-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.custom-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  padding: 11px 14px;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: right;
+  white-space: nowrap;
+}
+.custom-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+.custom-table tbody tr:hover {
+  background-color: #fff1f2;
+}
+
+/* Print Letterhead Styles */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  aside, header, #toast-container, .no-print, button:not(.print-include) {
+    display: none !important;
+  }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .custom-table {
+    font-size: 10pt !important;
+  }
+  .custom-table th, .custom-table td {
+    border: 1px solid #94a3b8 !important;
+    padding: 6px 8px !important;
+  }
+}
