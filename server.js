@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '4mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper: Extract current user from request headers
@@ -41,8 +41,9 @@ function requirePermission(...allowedRoles) {
 // ==========================================
 app.get('/api/bootstrap', (req, res) => {
   try {
-    const lines = db.getAllLines();
-    const products = db.getAllProducts();
+    const department = req.query.department || null;
+    const lines = db.getAllLines(department);
+    const products = db.getAllProducts(department);
     const inspectors = db.getAllInspectors();
     const rejectionReasons = db.getAllRejectionReasons();
     const taskTypes = db.getAllTaskTypes();
@@ -51,6 +52,7 @@ app.get('/api/bootstrap', (req, res) => {
     const aqlPlans = db.getAllAqlPlans();
     const roles = db.getAllRoles();
     const users = db.getAllUsers();
+    const hourlySlots = db.getHourlySlots(department);
 
     res.json({
       success: true,
@@ -64,7 +66,8 @@ app.get('/api/bootstrap', (req, res) => {
         supervisors,
         aqlPlans,
         roles,
-        users
+        users,
+        hourlySlots
       }
     });
   } catch (err) {
@@ -128,7 +131,8 @@ app.delete('/api/aql-plans/:id', requirePermission('supervisor'), (req, res) => 
 // ==========================================
 app.get('/api/lines', (req, res) => {
   try {
-    res.json({ success: true, data: db.getAllLines() });
+    const includeArchived = req.query.include_archived === 'true';
+    res.json({ success: true, data: db.getAllLines(req.query.department, includeArchived) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -157,8 +161,18 @@ app.put('/api/lines/:id', requirePermission('supervisor'), (req, res) => {
 app.delete('/api/lines/:id', requirePermission('supervisor'), (req, res) => {
   try {
     const user = getCurrentUser(req);
-    db.deleteLine(req.params.id, user.id, user.name);
-    res.json({ success: true, message: 'تم حذف خط الإنتاج بنجاح' });
+    db.archiveLine(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تمت أرشفة الخط وإخفاؤه من الاختيارات الجديدة مع الاحتفاظ بسجلاته' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/lines/:id/restore', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    db.restoreLine(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تمت استعادة خط الإنتاج بنجاح' });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -169,7 +183,7 @@ app.delete('/api/lines/:id', requirePermission('supervisor'), (req, res) => {
 // ==========================================
 app.get('/api/products', (req, res) => {
   try {
-    res.json({ success: true, data: db.getAllProducts() });
+    res.json({ success: true, data: db.getAllProducts(req.query.department) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -180,6 +194,16 @@ app.post('/api/products', requirePermission('supervisor'), (req, res) => {
     const user = getCurrentUser(req);
     const prod = db.createProduct(req.body, user.id, user.name);
     res.status(201).json({ success: true, data: prod, message: 'تمت إضافة المنتج بنجاح' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/scrap/products/quick', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const product = db.createQuickProduct(req.body.name, null, user.id, user.name);
+    res.status(201).json({ success: true, data: product, message: 'تمت إضافة المنتج إلى قائمة الجودة والهوالك.' });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -424,6 +448,14 @@ app.get('/api/dashboard', (req, res) => {
   }
 });
 
+app.get('/api/quality-dashboard', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getLineSampleDashboardMetrics(req.query) });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/reports', (req, res) => {
   try {
     const reportType = req.query.type || 'daily';
@@ -434,8 +466,345 @@ app.get('/api/reports', (req, res) => {
 });
 
 // ==========================================
+// HOURLY SAMPLE SLOTS API
+// ==========================================
+app.get('/api/hourly-slots', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getHourlySlots(req.query.department) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/hourly-slots', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const slot = db.createHourlySlot(req.body, user.id, user.name);
+    res.status(201).json({ success: true, data: slot, message: 'تمت إضافة فترة فحص الساعة بنجاح' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/hourly-slots/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const slot = db.updateHourlySlot(req.params.id, req.body, user.id, user.name);
+    res.json({ success: true, data: slot, message: 'تم تحديث فترة فحص الساعة بنجاح' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/hourly-slots/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    db.deleteHourlySlot(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تم حذف فترة فحص الساعة' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// LINE SAMPLE PULLS API
+// ==========================================
+app.get('/api/line-sample-slots', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getLineSampleSlots() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/line-sample-slots', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const slot = db.createLineSampleSlot(req.body, user.id, user.name);
+    res.status(201).json({ success: true, data: slot, message: 'تمت إضافة فترة السحب بنجاح.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/line-sample-slots/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    db.deleteLineSampleSlot(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تم حذف فترة السحب من الفترات المتاحة.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/line-sample-period-statuses', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getLineSamplePeriodStatuses(req.query.date) });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/line-sample-period-statuses', requirePermission('supervisor', 'inspector'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const status = db.saveLineSamplePeriodStatus(req.body, user.id, user.name);
+    res.json({ success: true, data: status, message: 'تم حفظ حالة الخط وسبب عدم السحب.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/inspection-stations', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getInspectionStations() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/inspection-stations', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const station = db.createInspectionStation(req.body.name, req.body.inspector_id, user.id, user.name);
+    res.status(201).json({ success: true, data: station, message: 'تمت إضافة محطة الفحص بنجاح.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/inspection-stations/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const station = db.updateInspectionStation(req.params.id, req.body.inspector_id, user.id, user.name);
+    res.json({ success: true, data: station, message: 'تم تحديث المراقب المسؤول عن المحطة.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/inspection-stations/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    db.deleteInspectionStation(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تم حذف محطة الفحص من قائمة المحطات.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/line-sample-pulls', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getLineSamplePulls(req.query) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/line-sample-pulls', requirePermission('supervisor', 'inspector'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const pull = db.createLineSamplePull(req.body, user.id, user.name);
+    res.status(201).json({ success: true, data: pull, message: 'تم تسجيل سحبة العينات بنجاح.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/line-sample-pulls/:id', requirePermission('supervisor', 'inspector'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const pull = db.updateLineSamplePull(req.params.id, req.body, user.id, user.name);
+    res.json({ success: true, data: pull, message: 'تم تعديل سحبة العينات بنجاح.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/line-sample-pulls/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    db.deleteLineSamplePull(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تم حذف سحبة العينات بنجاح.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/line-sample-pulls/:id/complete', requirePermission('supervisor', 'inspector'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const pull = db.completeLineSamplePull(req.params.id, req.body.defects, req.body.pallet_rejected, user.id, user.name);
+    res.json({ success: true, data: pull, message: 'تم إنهاء فحص السحبة وتسجيل العيوب بنجاح.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// HOURLY SAMPLES INSPECTION API
+// ==========================================
+app.get('/api/hourly-samples', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getHourlySamples(req.query) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/hourly-samples/:id', (req, res) => {
+  try {
+    const item = db.getHourlySampleById(req.params.id);
+    if (!item) return res.status(404).json({ success: false, error: 'سجل فحص الساعة غير موجود' });
+    res.json({ success: true, data: item });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/hourly-samples', requirePermission('supervisor', 'inspector'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const item = db.saveHourlySample(req.body, user.id, user.name);
+    res.status(201).json({
+      success: true,
+      data: item,
+      message: `تم حفظ فحص عينة الساعة بنجاح (${item.sample_count} عينة، ${item.defect_count} عيوب)`
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/hourly-samples/:id', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    db.deleteHourlySample(req.params.id, user.id, user.name);
+    res.json({ success: true, message: 'تم حذف فحص عينة الساعة بنجاح' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// DAILY END-OF-DAY PRODUCTION API
+// ==========================================
+app.get('/api/daily-production', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getDailyLineProduction(req.query) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/daily-production', requirePermission('supervisor', 'inspector'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const item = db.saveDailyLineProduction(req.body, user.id, user.name);
+    res.status(201).json({
+      success: true,
+      data: item,
+      message: `تم تسجيل إجمالي إنتاج اليوم بنجاح (${item.total_produced_qty} وحدة)`
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// FLOWCHART & SYSTEM DEEP ANALYTICS API
+// ==========================================
+app.get('/api/flowchart-analytics', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getFlowchartMetrics(req.query) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
 // SAVED FILTERS API
 // ==========================================
+app.get('/api/scrap-reports', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getScrapReports(req.query.date || null) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/scrap-reports', (req, res) => {
+  try {
+    const report = db.saveScrapReport(req.body);
+    res.status(201).json({ success: true, data: report, message: 'تم حفظ تقرير الهالك' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/scrap-reports/:id', (req, res) => {
+  try {
+    const report = db.saveScrapReport(req.body, req.params.id);
+    res.json({ success: true, data: report, message: 'تم تحديث تقرير الهالك' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/scrap-reports/:id', (req, res) => {
+  try {
+    db.deleteScrapReport(req.params.id);
+    res.json({ success: true, message: 'تم حذف تقرير الهالك' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/second-sort-handover-reports', (req, res) => {
+  try {
+    res.json({ success: true, data: db.getSecondSortHandoverReports(req.query.date || null) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/second-sort-handover-reports/:id', (req, res) => {
+  try {
+    const report = db.getSecondSortHandoverReportById(req.params.id);
+    if (!report) return res.status(404).json({ success: false, error: 'تقرير تسليم الفرز الثاني غير موجود.' });
+    res.json({ success: true, data: report });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/second-sort-handover-reports', (req, res) => {
+  try {
+    const report = db.saveSecondSortHandoverReport(req.body);
+    res.status(201).json({ success: true, data: report, message: 'تم حفظ تقرير تسليم الفرز الثاني.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/second-sort-handover-reports/:id', (req, res) => {
+  try {
+    const report = db.saveSecondSortHandoverReport(req.body, req.params.id);
+    res.json({ success: true, data: report, message: 'تم تحديث تقرير تسليم الفرز الثاني.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/second-sort-handover-reports/:id', (req, res) => {
+  try {
+    db.deleteSecondSortHandoverReport(req.params.id);
+    res.json({ success: true, message: 'تم حذف تقرير تسليم الفرز الثاني.' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/saved-filters', (req, res) => {
   try {
     res.json({ success: true, data: db.getSavedFilters(req.query.type) });
@@ -479,6 +848,16 @@ app.post('/api/settings/rejection-reasons', requirePermission('supervisor'), (re
     const user = getCurrentUser(req);
     const item = db.createRejectionReason(req.body, user.id, user.name);
     res.status(201).json({ success: true, data: item, message: 'تمت إضافة سبب الرفض بنجاح' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/settings/rejection-reasons/quick', requirePermission('supervisor'), (req, res) => {
+  try {
+    const user = getCurrentUser(req);
+    const item = db.createQuickRejectionReason(req.body.name, req.body.department, user.id, user.name);
+    res.status(201).json({ success: true, data: item, message: 'تمت إضافة سبب العيب إلى القائمة.' });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -576,6 +955,10 @@ app.get('/api/audit-logs', (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, error: `واجهة API غير موجودة: ${req.method} ${req.originalUrl}` });
 });
 
 // SPA fallback

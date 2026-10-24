@@ -9,8 +9,12 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js DataLabels Plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
   <!-- SheetJS (xlsx) for Excel Export -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Colored report image export -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   
@@ -18,6 +22,22 @@
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col">
 
+  <nav class="bg-slate-900 px-4 py-2.5 flex items-center justify-center gap-2 no-print" aria-label="التبديل بين الأنظمة">
+    <button id="system-btn-quality" type="button" onclick="App.switchSystem('quality')" aria-controls="quality-system" aria-pressed="true" class="px-4 py-2 rounded-xl bg-white text-slate-900 text-xs sm:text-sm font-bold flex items-center gap-2 transition">
+      <i class="fa-solid fa-shield-halved text-[#c8102e]"></i>
+      <span>نظام الجودة</span>
+    </button>
+    <button id="system-btn-scrap" type="button" onclick="App.switchSystem('scrap')" aria-controls="scrap-system" aria-pressed="false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs sm:text-sm font-bold flex items-center gap-2 transition">
+      <i class="fa-solid fa-recycle text-amber-400"></i>
+      <span>نظام الهوالك</span>
+    </button>
+    <button id="system-btn-incoming" type="button" onclick="App.switchSystem('incoming')" aria-controls="incoming-system" aria-pressed="false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs sm:text-sm font-bold flex items-center gap-2 transition">
+      <i class="fa-solid fa-truck-ramp-box text-sky-400"></i>
+      <span>نظام الوارد</span>
+    </button>
+  </nav>
+
+  <div id="quality-system" class="flex flex-col flex-1">
   <!-- Top Geometric Brand Band -->
   <div class="brand-pattern-band no-print"></div>
 
@@ -26,7 +46,7 @@
 
   <!-- Header -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class=" mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
         
         <!-- Logo & Title -->
@@ -49,11 +69,33 @@
           </div>
         </div>
 
+        <!-- Department / Sector Switcher -->
+        <div class="hidden md:flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold gap-1 shadow-inner">
+          <button id="dept-btn-home" onclick="App.setDepartment('home')" class="dept-btn active px-3 py-1.5 rounded-xl text-slate-700 flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-blender"></i>
+            <span>الأجهزة المنزلية</span>
+          </button>
+          <button id="dept-btn-seria" onclick="App.setDepartment('seria')" class="dept-btn px-3 py-1.5 rounded-xl text-slate-700 flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-bolt"></i>
+            <span>قسم السريا</span>
+          </button>
+          <button id="dept-btn-all" onclick="App.setDepartment('all')" class="dept-btn px-3 py-1.5 rounded-xl text-slate-700 flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-layer-group"></i>
+            <span>المصنع بالكامل</span>
+          </button>
+        </div>
+
         <!-- Quick Actions & User Switcher -->
-        <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-2">
           
+          <!-- Quick Hourly Sample Button -->
+          <button onclick="HourlyModule.openAddModal()" class="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition">
+            <i class="fa-solid fa-stopwatch text-amber-400"></i>
+            <span class="hidden sm:inline">سحب عينات بالساعة</span>
+          </button>
+
           <!-- Quick Receive Pallet Button -->
-          <button onclick="PalletModule.openReceiveModal()" class="inline-flex items-center gap-2 bg-[#c8102e] hover:bg-[#991b1b] text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition">
+          <button onclick="PalletModule.openReceiveModal()" class="inline-flex items-center gap-1.5 bg-[#c8102e] hover:bg-[#991b1b] text-white text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition">
             <i class="fa-solid fa-boxes-packing"></i>
             <span class="hidden sm:inline">استلام بالته جديدة</span>
           </button>
@@ -77,7 +119,7 @@
     </div>
   </header>
 
-  <div class="flex-1 flex max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 gap-6">
+  <div class="flex-1 flex  mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 gap-6">
 
     <!-- Collapsible Sidebar Navigation -->
     <aside id="sidebar" class="w-64 flex-shrink-0 bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm h-fit sticky top-24 no-print">
@@ -102,6 +144,21 @@
           <span class="nav-text">استلام وفحص البلتات</span>
         </button>
 
+        <button onclick="App.switchTab('hourly-samples')" data-tab="hourly-samples" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-stopwatch w-5 text-center text-slate-500"></i>
+          <span class="nav-text">استلام عينات بالساعة</span>
+        </button>
+
+        <button onclick="App.switchTab('line-samples')" data-tab="line-samples" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-vials w-5 text-center text-slate-500"></i>
+          <span class="nav-text">سحب عينات للخطوط</span>
+        </button>
+
+        <button onclick="App.switchTab('line-sample-summary')" data-tab="line-sample-summary" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-table-list w-5 text-center text-slate-500"></i>
+          <span class="nav-text">ملخص الخطوط حسب سحب العينات</span>
+        </button>
+
         <button onclick="App.switchTab('daily-breakdown')" data-tab="daily-breakdown" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
           <i class="fa-solid fa-clock-rotate-left w-5 text-center text-slate-500"></i>
           <span class="nav-text">الإنتاج والمفحوص والانتظار</span>
@@ -110,6 +167,11 @@
         <button onclick="App.switchTab('line-summary')" data-tab="line-summary" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
           <i class="fa-solid fa-chart-line w-5 text-center text-slate-500"></i>
           <span class="nav-text">ملخص الجودة حسب الخط</span>
+        </button>
+
+        <button onclick="App.switchTab('flowchart')" data-tab="flowchart" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition">
+          <i class="fa-solid fa-diagram-project w-5 text-center text-slate-500"></i>
+          <span class="nav-text">مخطط الجودة والتحليل (Flowchart)</span>
         </button>
 
         <div class="pt-3 pb-1 border-t border-slate-100 my-2">
@@ -183,9 +245,198 @@
       <!-- TAB 1: DASHBOARD (لوحة التحكم) -->
       <!-- ============================================================== -->
       <section id="tab-dashboard" class="tab-pane fade-in">
+
+        <div class="quality-dashboard space-y-6">
+          <header class="rounded-2xl bg-gradient-to-l from-slate-950 via-slate-900 to-red-950 p-5 md:p-7 text-white shadow-lg">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-bold text-red-200">مركز متابعة الجودة</p>
+                <h1 class="mt-1 text-xl md:text-2xl font-extrabold">تحليلات سحب عينات خطوط الإنتاج</h1>
+                <p class="mt-2 max-w-3xl text-xs leading-6 text-slate-300">البيانات من سجلات سحب عينات الخطوط المكتملة، حسب تاريخ السحب والمنتج والخط وأسباب العيوب المسجلة.</p>
+              </div>
+              <p id="quality-last-updated" class="text-[11px] text-slate-300">آخر تحديث: —</p>
+            </div>
+          </header>
+
+          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-filter text-[#c8102e]"></i>
+              <h2 class="text-sm font-extrabold text-slate-800">فلاتر التحليلات</h2>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+              <label class="text-xs font-bold text-slate-600">الشهر
+                <input id="quality-filter-month" type="month" onchange="DashboardModule.load()" class="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+              </label>
+              <label class="text-xs font-bold text-slate-600">من تاريخ
+                <input id="quality-filter-from" type="date" onchange="DashboardModule.load()" class="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+              </label>
+              <label class="text-xs font-bold text-slate-600">إلى تاريخ
+                <input id="quality-filter-to" type="date" onchange="DashboardModule.load()" class="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+              </label>
+              <label class="text-xs font-bold text-slate-600">خط الإنتاج
+                <select id="quality-filter-line" onchange="DashboardModule.load()" class="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+                  <option value="">جميع الخطوط</option>
+                </select>
+              </label>
+              <label class="text-xs font-bold text-slate-600">المنتج (الاسم / الكود)
+                <select id="quality-filter-product" onchange="DashboardModule.load()" class="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+                  <option value="">جميع المنتجات</option>
+                </select>
+              </label>
+              <label class="text-xs font-bold text-slate-600">نوع العيب
+                <select id="quality-filter-reason" onchange="DashboardModule.load()" class="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+                  <option value="">جميع العيوب</option>
+                </select>
+              </label>
+            </div>
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p class="text-[11px] leading-5 text-slate-500">تُطبق الفلاتر نفسها على المؤشرات والرسوم والجداول. يمكن جمع الشهر مع نطاق تاريخ أضيق، وتظهر بيانات 21 أكتوبر عند اختيار التاريخ الموافق.</p>
+              <button type="button" onclick="DashboardModule.resetFilters()" class="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100">
+                <i class="fa-solid fa-rotate-right ml-1"></i>إعادة ضبط وعرض كل البيانات
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article class="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+              <p class="text-xs font-bold text-emerald-800">أفضل خط إنتاج <span class="text-[10px] font-medium text-slate-500">(أقل نسبة عيوب)</span></p>
+              <div id="quality-best-line" class="mt-2 text-sm font-extrabold text-slate-900">—</div>
+              <p id="quality-best-line-detail" class="mt-1 text-[11px] text-slate-600">—</p>
+              <p id="quality-best-line-rule" class="mt-2 text-[10px] text-slate-500"></p>
+            </article>
+            <article class="rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
+              <p class="text-xs font-bold text-blue-800">أفضل منتج <span class="text-[10px] font-medium text-slate-500">(أقل نسبة عيوب)</span></p>
+              <div id="quality-best-product" class="mt-2 text-sm font-extrabold text-slate-900">—</div>
+              <p id="quality-best-product-detail" class="mt-1 text-[11px] text-slate-600">—</p>
+              <p id="quality-best-product-rule" class="mt-2 text-[10px] text-slate-500"></p>
+            </article>
+            <article class="rounded-2xl border border-red-200 bg-white p-4 shadow-sm">
+              <p class="text-xs font-bold text-red-800">أكثر عيب تكرارًا</p>
+              <div id="quality-most-defect" class="mt-2 text-sm font-extrabold text-slate-900">—</div>
+              <p id="quality-most-defect-detail" class="mt-1 text-[11px] text-slate-600">—</p>
+            </article>
+            <article class="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+              <p class="text-xs font-bold text-amber-800">أقل عيب تكرارًا</p>
+              <div id="quality-least-defect" class="mt-2 text-sm font-extrabold text-slate-900">—</div>
+              <p id="quality-least-defect-detail" class="mt-1 text-[11px] text-slate-600">—</p>
+            </article>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p class="text-xs text-slate-500">إجمالي العينات المفحوصة (شامل)</p><p id="quality-total-inspected" class="mt-1 text-2xl font-extrabold text-indigo-700">0</p></article>
+            <article class="rounded-2xl border border-red-200 bg-white p-4 shadow-sm"><p class="text-xs text-slate-500">إجمالي العيوب المكتشفة</p><p id="quality-total-rejected" class="mt-1 text-2xl font-extrabold text-red-700">0</p></article>
+            <article class="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"><p class="text-xs text-slate-500">نسبة العيوب الإجمالية</p><p id="quality-total-rate" class="mt-1 text-2xl font-extrabold text-amber-700">غير متاحة</p></article>
+            <article class="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm"><p class="text-xs text-slate-500">مرات ظهور أسباب العيوب</p><p id="quality-total-defects" class="mt-1 text-2xl font-extrabold text-violet-700">0</p></article>
+          </div>
+
+          <!-- Full-Width Chart 1: إجمالي المفحوص والعيوب -->
+          <article class="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 class="text-base font-extrabold text-slate-800">إجمالي العينات المفحوصة والعيوب المكتشفة</h2>
+                <p class="text-xs text-slate-500">مقارنة شاملة لجميع الخطوط وسحب البلتات والعينات - جاهز للعرض والتقاط الشاشة</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="rounded-lg bg-emerald-50 text-emerald-700 px-3 py-1 text-xs font-bold border border-emerald-200">
+                  <i class="fa-solid fa-camera ml-1"></i>جاهز للسكرين شوت والباوربوينت
+                </span>
+              </div>
+            </div>
+            <div class="relative h-80 w-full"><canvas id="quality-daily-chart"></canvas></div>
+            <div id="quality-day-detail" class="mt-3 rounded-xl bg-slate-50 p-3.5 text-xs text-slate-700 text-center font-bold border border-slate-100">اختر نقطة لعرض تفاصيل اليوم.</div>
+          </article>
+
+          <!-- Full-Width Chart 2: مقارنة المنتجات -->
+          <article class="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 class="text-base font-extrabold text-slate-800">مقارنة المنتجات الشاملة</h2>
+                <p class="text-xs text-slate-500">إجمالي المفحوص والعيوب المسجلة لكل منتج عبر كل السحبات والخطوط</p>
+              </div>
+              <select id="quality-product-sort" onchange="DashboardModule.renderProductChart()" class="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold">
+                <option value="rejected">أعلى عيوب مسجلة</option>
+                <option value="rate">أعلى نسبة عيوب</option>
+                <option value="inspected">أكبر إجمالي عينات</option>
+                <option value="rate_asc">أقل نسبة عيوب</option>
+              </select>
+            </div>
+            <div class="max-h-96 overflow-y-auto w-full"><div class="relative min-h-[320px] w-full"><canvas id="quality-product-chart"></canvas></div></div>
+            <div id="quality-product-detail" class="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">اختر منتجًا من المخطط لعرض الخطوط والعيوب المسجلة.</div>
+          </article>
+
+          <!-- Full-Width Chart 3: تكرار العيوب المسجلة -->
+          <article class="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <h2 class="text-base font-extrabold text-slate-800">تكرار العيوب المسجلة (جميع الأسباب)</h2>
+                <p class="text-xs text-slate-500">أعمدة رأسية مع إظهار الأرقام المباشرة فوق كل عمود</p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <input id="quality-defect-search" oninput="DashboardModule.renderDefectChart()" type="search" placeholder="بحث عن عيب..." class="w-40 rounded-xl border border-slate-300 px-3 py-1.5 text-xs">
+                <select id="quality-defect-limit" onchange="DashboardModule.renderDefectChart()" class="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold">
+                  <option value="15">أعلى 15 عيباً</option>
+                  <option value="20">أعلى 20 عيباً</option>
+                  <option value="30">أعلى 30 عيباً</option>
+                  <option value="all">عرض الكل</option>
+                </select>
+                <select id="quality-defect-sort" onchange="DashboardModule.renderDefectChart()" class="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold">
+                  <option value="desc">تنازلي (الأكثر تكراراً)</option>
+                  <option value="asc">تصاعدي</option>
+                </select>
+              </div>
+            </div>
+            <div class="w-full"><div class="relative h-[430px] w-full"><canvas id="quality-defect-chart"></canvas></div></div>
+            <div id="quality-defect-detail" class="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">اختر عيبًا لعرض المنتجات والخطوط المرتبطة.</div>
+          </article>
+
+          <!-- Full-Width Chart 4: باريتو العيوب -->
+          <article class="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 border-b border-slate-100 pb-3">
+              <h2 class="text-base font-extrabold text-slate-800">باريتو العيوب الشامل</h2>
+              <p class="text-xs text-slate-500">الأعمدة تمثل مرات ظهور كل عيب والخط يمثل النسبة المئوية التراكمية</p>
+            </div>
+            <div class="max-h-96 overflow-y-auto w-full"><div class="relative min-h-[340px] w-full"><canvas id="quality-pareto-chart"></canvas></div></div>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="mb-3"><h2 class="text-sm font-extrabold text-slate-800">خريطة حرارة نسبة العيوب حسب الخط والمنتج</h2><p class="text-[11px] text-slate-500">كل خلية مستقلة للمنتج على الخط؛ مرر المؤشر لمعرفة عدد العينات والعيوب المكتشفة.</p></div>
+            <div id="quality-heatmap" class="overflow-x-auto"></div>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+              <div><h2 class="text-sm font-extrabold text-slate-800">مقارنة الخطوط والمنتجات الشاملة</h2><p class="text-[11px] text-slate-500">عدد العينات والعيوب لكل زوج خط/منتج تشمل سحب البلتات والخطوط.</p></div>
+              <div class="flex flex-wrap gap-2"><input id="quality-comparison-search" oninput="DashboardModule.renderComparisonTable()" type="search" placeholder="بحث بالخط أو المنتج أو الكود" class="rounded-lg border border-slate-300 px-3 py-2 text-xs">
+                <select id="quality-comparison-sort" onchange="DashboardModule.renderComparisonTable()" class="rounded-lg border border-slate-300 bg-slate-50 px-2 py-2 text-xs"><option value="rate_desc">أعلى نسبة عيوب</option><option value="rate_asc">أقل نسبة عيوب</option><option value="inspected_desc">أكبر إجمالي عينات</option><option value="rejected_desc">أعلى عدد عيوب</option></select>
+                <button type="button" onclick="DashboardModule.exportComparison()" class="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800"><i class="fa-solid fa-download ml-1"></i>تصدير CSV</button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="custom-table min-w-[780px] text-xs">
+                <thead>
+                  <tr>
+                    <th>خط الإنتاج</th>
+                    <th>المنتج</th>
+                    <th>الكود</th>
+                    <th>مرات الفحص</th>
+                    <th>إجمالي المفحوص</th>
+                    <th>إجمالي العيوب</th>
+                    <th>نسبة العيوب</th>
+                  </tr>
+                </thead>
+                <tbody id="quality-comparison-body"></tbody>
+                <tfoot id="quality-comparison-foot" class="border-t-2 border-slate-300 bg-slate-100 font-extrabold text-slate-900"></tfoot>
+              </table>
+            </div>
+          </article>
+
+          <p class="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-[11px] leading-5 text-indigo-900">
+            <strong>نطاق الفحص الشامل:</strong> يشمل «إجمالي المفحوص» كافة العينات المسحوبة على مستوى جميع خطوط الإنتاج من سحب الخطوط الدورية، وفحص البلتات الواردة، والفحص الساعي. «إجمالي العيوب» يجمع كل عيب تم رصده وتسجيله بغض النظر عن قبول البلتة أو رفضها لضمان الشفافية الكاملة في التحليل والعرض.
+          </p>
+        </div>
         
         <!-- Filter Bar -->
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div class="hidden bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
           <div class="flex items-center gap-2">
             <i class="fa-solid fa-filter text-[#c8102e]"></i>
             <span class="font-bold text-sm text-slate-700">تصفية لوحة التحكم:</span>
@@ -222,7 +473,7 @@
         </div>
 
         <!-- Key Lifecycle Metric Cards (المستلم، في الانتظار، المفحوص، المقبول، المرفوض) -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 mb-6">
+        <div class="hidden grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 mb-6">
           
           <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
             <span class="text-xs font-semibold text-slate-500 flex items-center justify-between">
@@ -293,7 +544,7 @@
         </div>
 
         <!-- Charts Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="hidden grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h3 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
               <i class="fa-solid fa-chart-column text-[#c8102e]"></i>
@@ -316,7 +567,7 @@
         </div>
 
         <!-- Real-time Summary Table in Dashboard -->
-        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
             <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
               <i class="fa-solid fa-table-list text-[#c8102e]"></i>
@@ -406,10 +657,10 @@
             <table class="custom-table text-sm">
               <thead>
                 <tr>
-                  <th>التاريخ ووقت الاستلام</th>
-                  <th>الخط</th>
+                  <th>اسم الخط</th>
+                  <th>اسم الجهاز / المنتج</th>
                   <th>رقم البالتة</th>
-                  <th>اسم الجهاز المنزلي</th>
+                  <th>التاريخ ووقت الاستلام</th>
                   <th>الكمية</th>
                   <th>حالة الفحص والتوقيت</th>
                   <th>عينة AQL المطلوبة</th>
@@ -433,6 +684,295 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB: HOURLY SAMPLES (استلام عينات بالساعة) -->
+      <!-- ============================================================== -->
+      <section id="tab-hourly-samples" class="tab-pane hidden fade-in">
+        
+        <!-- Filter Bar -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center text-lg font-bold shadow-sm">
+              <i class="fa-solid fa-stopwatch text-amber-400"></i>
+            </div>
+            <div>
+              <h2 class="font-bold text-sm text-slate-800">استلام ومتابعة فحص العينات بالساعة</h2>
+              <p class="text-xs text-slate-500">سحب عينات دورية بالساعة (8 سحبات يومياً قابلة للتخصيص) مع تسجيل الإنتاج الفعلي نهاية اليوم</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <input type="date" id="hourly-filter-date" onchange="HourlyModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+
+            <select id="hourly-filter-line" onchange="HourlyModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+              <option value="">جميع الخطوط</option>
+            </select>
+
+            <select id="hourly-filter-product" onchange="HourlyModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+              <option value="">جميع المنتجات</option>
+            </select>
+
+            <select id="hourly-filter-shift" onchange="HourlyModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+              <option value="">جميع الورديات</option>
+            </select>
+
+            <button onclick="HourlyModule.openAddModal()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-3.5 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-plus"></i> سحب عينة ساعة
+            </button>
+            <button onclick="HourlyModule.openDailyProdModal()" class="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-calculator"></i> تسجيل إنتاج اليوم يدويًا
+            </button>
+            <button onclick="HourlyModule.openSlotsModal()" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5">
+              <i class="fa-solid fa-sliders"></i> ساعات السحب
+            </button>
+            <button onclick="HourlyModule.exportExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5">
+              <i class="fa-solid fa-file-excel"></i> Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- Metric KPI Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div>
+              <p class="text-xs text-slate-500 font-medium">سحبات اليوم</p>
+              <h3 id="hourly-kpi-pulls" class="text-2xl font-black text-slate-900 mt-0.5">0</h3>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center text-lg"><i class="fa-solid fa-list-check"></i></div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div>
+              <p class="text-xs text-slate-500 font-medium">إجمالي العينات المفحوصة</p>
+              <h3 id="hourly-kpi-samples" class="text-2xl font-black text-indigo-700 mt-0.5">0</h3>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center text-lg"><i class="fa-solid fa-vial"></i></div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div>
+              <p class="text-xs text-slate-500 font-medium">العيوب المكتشفة بالساعة</p>
+              <h3 id="hourly-kpi-defects" class="text-2xl font-black text-red-700 mt-0.5">0</h3>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-red-50 text-red-700 flex items-center justify-center text-lg"><i class="fa-solid fa-triangle-exclamation"></i></div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div>
+              <p class="text-xs text-slate-500 font-medium">نسبة العيوب الإجمالية</p>
+              <h3 id="hourly-kpi-rate" class="text-2xl font-black text-slate-900 mt-0.5">0%</h3>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-lg"><i class="fa-solid fa-percent"></i></div>
+          </div>
+        </div>
+
+        <!-- End of Day Production Summary Card -->
+        <div class="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-4 rounded-2xl shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded-full border border-amber-400/20">إغلاق الإنتاج اليومي يدويًا</span>
+              <h3 class="font-extrabold text-sm">مطابقة الإنتاج الفعلي بنهاية اليوم مع عينات الساعة</h3>
+            </div>
+            <p class="text-xs text-slate-300 mt-1">أثناء اليوم يتم فحص العينات بالساعة، وبنهاية الوردية يتم تسجيل إجمالي الإنتاج الفعلي لكل خط وجهاز لاحتساب معدل الجودة التقديري بدقة.</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <button onclick="HourlyModule.openDailyProdModal()" class="bg-white hover:bg-slate-100 text-slate-900 text-xs font-extrabold px-4 py-2 rounded-xl transition shadow flex items-center gap-2">
+              <i class="fa-solid fa-plus-circle text-indigo-700"></i> تسجيل الإنتاج الفعلي الآن
+            </button>
+          </div>
+        </div>
+
+        <!-- End of Day Production Table (if any entered) -->
+        <div id="daily-prod-box" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6 hidden">
+          <div class="p-3.5 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-950 flex items-center gap-2"><i class="fa-solid fa-clipboard-check text-indigo-700"></i> كميات الإنتاج الفعلي المسجلة اليوم:</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="custom-table text-xs">
+              <thead>
+                <tr>
+                  <th>اسم الخط</th>
+                  <th>اسم المنتج</th>
+                  <th>الوردية</th>
+                  <th>إجمالي الإنتاج المسجل</th>
+                  <th>عينات الساعة المفحوصة</th>
+                  <th>إجمالي العيوب بالساعة</th>
+                  <th>معدل الجودة التقديري</th>
+                  <th>سجل بواسطة</th>
+                </tr>
+              </thead>
+              <tbody id="daily-prod-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Hourly Samples Main Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700">كشف سحبات عينات الساعة حسب الخط والمنتج:</span>
+            <span id="hourly-count-badge" class="text-xs font-semibold text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200">0 سحبة</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th>اسم الخط</th>
+                  <th>اسم المنتج</th>
+                  <th>فترة السحب (الساعة)</th>
+                  <th>الوردية</th>
+                  <th>العينات المسحوبة</th>
+                  <th>العيوب المكتشفة</th>
+                  <th>نسبة العيوب %</th>
+                  <th>القرار</th>
+                  <th>تفاصيل وأسباب العيوب</th>
+                  <th>المراقب</th>
+                  <th class="text-center">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="hourly-samples-tbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="hourly-inspector-summary" class="space-y-5"></div>
+
+      </section>
+
+      <!-- LINE SAMPLES INSPECTION -->
+      <section id="tab-line-samples" class="tab-pane hidden fade-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+          <div>
+            <h2 class="text-xl font-extrabold text-slate-900">سحب عينات للخطوط</h2>
+            <p class="text-xs text-slate-500 mt-1">سجّل السحبة ووقتها ومحطتها، ثم أنهِ الفحص لتسجيل العيوب.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" onclick="LineSamplesModule.openSlotsModal()" class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl">
+              <i class="fa-solid fa-clock ml-1"></i> إدارة فترات السحب
+            </button>
+            <button type="button" onclick="LineSamplesModule.openStationsModal()" class="bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl">
+              <i class="fa-solid fa-list-check ml-1"></i> إدارة محطات الفحص
+            </button>
+          </div>
+        </div>
+
+        <form id="line-sample-form" onsubmit="event.preventDefault(); LineSamplesModule.createPull();" class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-5">
+          <h3 class="font-bold text-sm text-slate-800 mb-4"><i class="fa-solid fa-circle-plus text-[#c8102e] ml-1"></i> تسجيل سحبة عينات جديدة</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+            <div>
+              <label for="line-sample-date" class="block font-bold mb-1">تاريخ السحب</label>
+              <input id="line-sample-date" type="date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+            </div>
+            <div>
+              <label for="line-sample-line" class="block font-bold mb-1">رقم / خط الإنتاج</label>
+              <select id="line-sample-line" required onchange="LineSamplesModule.handleLineChange(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <option value="">اختر خط الإنتاج...</option>
+              </select>
+            </div>
+            <div>
+              <label for="line-sample-product" class="block font-bold mb-1">المنتج</label>
+              <select id="line-sample-product" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <option value="">اختر المنتج...</option>
+              </select>
+            </div>
+            <div>
+              <label for="line-sample-station" class="block font-bold mb-1">محطة الفحص</label>
+              <select id="line-sample-station" required onchange="LineSamplesModule.handleStationChange(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <option value="">اختر محطة الفحص...</option>
+              </select>
+            </div>
+            <div>
+              <label for="line-sample-slot" class="block font-bold mb-1">فترة السحب</label>
+              <select id="line-sample-slot" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <option value="">اختر فترة السحب...</option>
+              </select>
+            </div>
+            <div>
+              <label for="line-sample-quantity" class="block font-bold mb-1">إجمالي عدد العينات</label>
+              <input id="line-sample-quantity" type="number" min="1" step="1" required oninput="LineSamplesModule.updatePrimarySampleCount('line-sample')" placeholder="مثال: 5" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+            </div>
+            <div>
+              <label for="line-sample-inspector" class="block font-bold mb-1">المراقب / الفاحص</label>
+              <select id="line-sample-inspector" required onchange="LineSamplesModule.populateAdditionalInspectorOptions('line-sample')" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <option value="">اختر المراقب...</option>
+              </select>
+            </div>
+            <div class="sm:col-span-2 xl:col-span-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <input id="line-sample-has-additional-inspector" type="checkbox" onchange="LineSamplesModule.toggleAdditionalInspector('line-sample')" class="h-4 w-4 accent-[#c8102e]">
+              <label for="line-sample-has-additional-inspector" class="font-bold">هل شارك مراقب إضافي في السحبة؟</label>
+              <span class="text-slate-500">عدد عيناته يُخصم من الإجمالي ويُسجل على اسمه.</span>
+            </div>
+            <div id="line-sample-additional-inspector-fields" class="hidden sm:col-span-2 xl:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <div>
+                <label for="line-sample-additional-inspector" class="block font-bold mb-1">المراقب الإضافي</label>
+                <select id="line-sample-additional-inspector" onchange="LineSamplesModule.updatePrimarySampleCount('line-sample')" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2">
+                  <option value="">اختر المراقب الإضافي...</option>
+                </select>
+              </div>
+              <div>
+                <label for="line-sample-additional-quantity" class="block font-bold mb-1">عدد العينات التي فحصها</label>
+                <input id="line-sample-additional-quantity" type="number" min="1" step="1" oninput="LineSamplesModule.updatePrimarySampleCount('line-sample')" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2">
+              </div>
+              <p class="sm:col-span-2 text-xs text-blue-800">عينات المراقب الأساسي المتبقية: <strong id="line-sample-primary-sample-count">0</strong></p>
+            </div>
+          </div>
+          <div class="flex justify-end mt-4 pt-3 border-t">
+            <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-5 py-2.5 rounded-xl">
+              <i class="fa-solid fa-floppy-disk ml-1"></i> تسجيل السحبة
+            </button>
+          </div>
+        </form>
+
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-4 flex flex-wrap items-end gap-3 text-xs">
+          <div>
+            <label for="line-samples-filter-date" class="block font-bold mb-1">تاريخ السحبات</label>
+            <input id="line-samples-filter-date" type="date" onchange="LineSamplesModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+          </div>
+          <div>
+            <label for="line-samples-filter-slot" class="block font-bold mb-1">فترة السحب</label>
+            <select id="line-samples-filter-slot" onchange="LineSamplesModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+              <option value="">كل الفترات</option>
+            </select>
+          </div>
+          <div>
+            <label for="line-samples-filter-line" class="block font-bold mb-1">الخط</label>
+            <select id="line-samples-filter-line" onchange="LineSamplesModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+              <option value="">كل الخطوط</option>
+            </select>
+          </div>
+          <div>
+            <label for="line-samples-filter-status" class="block font-bold mb-1">حالة الفحص</label>
+            <select id="line-samples-filter-status" onchange="LineSamplesModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+              <option value="">كل الحالات</option><option value="pending">بانتظار الفحص</option><option value="completed">تم الفحص</option>
+            </select>
+          </div>
+          <button type="button" onclick="LineSamplesModule.load()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-4 py-2.5 rounded-xl">تحديث السحبات</button>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="custom-table text-xs min-w-full">
+              <thead>
+                <tr>
+                  <th>التاريخ والفترة</th><th>الخط</th><th>المنتج</th><th>محطة الفحص</th>
+                  <th>المراقبون / توزيع العينات</th><th>إجمالي العينات</th><th>الحالة</th><th>المشاكل / العيوب</th><th>الإجراء</th>
+                </tr>
+              </thead>
+              <tbody id="line-samples-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mt-5 mb-3 flex flex-wrap items-end gap-3 text-xs">
+          <div>
+            <label for="line-samples-summary-date" class="block font-bold mb-1">تاريخ ملخص الإجماليات</label>
+            <input id="line-samples-summary-date" type="date" onchange="LineSamplesModule.loadDailySummary()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+          </div>
+          <button type="button" onclick="LineSamplesModule.loadDailySummary()" class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold px-4 py-2.5 rounded-xl">عرض إجماليات اليوم</button>
+          <p class="text-slate-500">إجمالي العينات المفحوصة حسب المراقب ومحطة الفحص والخط في التاريخ المحدد.</p>
+        </div>
+        <div id="line-samples-daily-summary" class="grid grid-cols-1 xl:grid-cols-3 gap-4"></div>
       </section>
 
       <!-- ============================================================== -->
@@ -508,62 +1048,336 @@
           <div class="flex items-center gap-3">
             <i class="fa-solid fa-chart-line text-[#c8102e] text-lg"></i>
             <div>
-              <h2 class="font-bold text-sm text-slate-800">ملخص ومؤشرات جودة خطوط تجميع الأجهزة المنزلية</h2>
-              <p class="text-xs text-slate-500">حسابات تلقائية فورية مع حماية ضد القسمة على صفر وانعكاس مباشر لنتائج الفحص</p>
+              <h2 class="font-bold text-sm text-slate-800">ملخص ومؤشرات جودة خطوط التجميع</h2>
+              <p class="text-xs text-slate-500">عرض أسباب الرفض كاملة بالتفصيل مع إمكانية أخذ لقطة شاشة للصفحة كاملة في صفحة واحدة</p>
             </div>
           </div>
 
           <div class="flex flex-wrap items-center gap-2 text-xs">
-            <input type="date" id="summary-date-from" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+            <input type="date" id="summary-date-from" onchange="SummaryModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
             <span class="text-xs text-slate-400">إلى</span>
-            <input type="date" id="summary-date-to" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+            <input type="date" id="summary-date-to" onchange="SummaryModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
 
-            <select id="summary-filter-shift" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+            <select id="summary-filter-shift" onchange="SummaryModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
               <option value="">جميع الورديات</option>
             </select>
 
-            <button onclick="SummaryModule.load()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-3.5 py-1.5 rounded-xl font-bold transition">
-              تحديث
+            <button onclick="SummaryModule.load()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-3.5 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate"></i> تحديث
             </button>
-            <button onclick="SummaryModule.exportExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-xl font-bold transition">
+            <button onclick="SummaryModule.toggleScreenshotMode()" id="summary-screenshot-btn" class="bg-indigo-700 hover:bg-indigo-800 text-white px-3.5 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-camera"></i> وضع لقطة الشاشة (صفحة واحدة)
+            </button>
+            <button onclick="SummaryModule.exportExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5">
               <i class="fa-solid fa-file-excel ml-1"></i> Excel
             </button>
-            <button onclick="SummaryModule.printReport()" class="bg-slate-800 text-white px-3 py-1.5 rounded-xl font-bold transition">
+            <button onclick="SummaryModule.printReport()" class="bg-slate-800 text-white px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5">
               <i class="fa-solid fa-print ml-1"></i> طباعة التقرير
             </button>
           </div>
         </div>
 
-        <div id="summary-print-container" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-600">ملخص أداء الجودة ومطابقة AQL حسب خط الإنتاج:</span>
-            <span id="summary-period-badge" class="text-xs font-semibold text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200">اليوم</span>
+        <div id="summary-print-container" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6 transition-all">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-slate-700">ملخص أداء الجودة ومطابقة AQL حسب خط الإنتاج:</span>
+              <span id="summary-day-label" class="text-xs font-black text-[#c8102e] bg-red-50 border border-red-200 px-3 py-1 rounded-full flex items-center gap-1">
+                <i class="fa-solid fa-calendar-day"></i> <span id="summary-day-text">يوم التقرير: اليوم</span>
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="summary-period-badge" class="text-xs font-semibold text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200">اليوم</span>
+            </div>
           </div>
 
           <div class="overflow-x-auto">
             <table class="custom-table text-sm">
               <thead>
                 <tr>
-                  <th>رقم الخط</th>
+                  <th>اسم الخط</th>
+                  <th>اسم المنتج / الجهاز</th>
                   <th>مشرف الخط</th>
                   <th>مراقب الجودة المكلف</th>
-                  <th>المنتج / الأجهزة</th>
                   <th>إجمالي الإنتاج</th>
                   <th>كمية الفحص (AQL)</th>
                   <th>الكمية المرفوضة</th>
                   <th>الكمية المقبولة</th>
                   <th>نسبة الرفض %</th>
-                  <th>أسباب الرفض المجمعة</th>
+                  <th style="min-width: 260px;">أسباب الرفض بالتفصيل الكامل</th>
                   <th>بلتات مقبولة</th>
                   <th>بلتات مرفوضة</th>
                 </tr>
               </thead>
               <tbody id="summary-tbody">
-                <!-- Populated -->
+                <!-- Populated dynamically -->
               </tbody>
               <tfoot id="summary-tfoot" class="bg-slate-100 font-bold border-t-2 border-slate-300">
                 <!-- Totals -->
               </tfoot>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <section id="tab-line-sample-summary" class="tab-pane hidden fade-in">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-5 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-table-list text-[#c8102e] text-lg"></i>
+            <div>
+              <h2 class="font-bold text-sm text-slate-800">ملخص الخطوط حسب سحب عينات الخطوط</h2>
+              <p class="text-xs text-slate-500">ملخص مشاكل كل خط بدون تفصيل الساعات، ثم جدول مستقل لكل فترة سحب.</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <label for="line-sample-summary-date" class="font-bold">تاريخ التقرير</label>
+            <input type="date" id="line-sample-summary-date" onchange="LineSampleSummaryModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+            <button type="button" onclick="LineSampleSummaryModule.load()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-3.5 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-rotate ml-1"></i> تحديث
+            </button>
+            <button type="button" onclick="LineSampleSummaryModule.toggleScreenshotMode()" id="line-sample-summary-screenshot-btn" class="bg-indigo-700 hover:bg-indigo-800 text-white px-3.5 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-camera ml-1"></i> وضع لقطة الشاشة (صفحة واحدة)
+            </button>
+            <button type="button" onclick="LineSampleSummaryModule.exportExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-file-excel ml-1"></i> Excel
+            </button>
+            <button type="button" onclick="LineSampleSummaryModule.printReport()" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl font-bold transition">
+              <i class="fa-solid fa-print ml-1"></i> طباعة التقرير
+            </button>
+          </div>
+        </div>
+        <div id="line-sample-summary-print-container" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 mb-4">
+            <h3 class="font-extrabold text-sm text-slate-800">ملخص المشاكل حسب سحب عينات الخطوط</h3>
+            <span id="line-sample-summary-report-date" class="text-xs font-bold text-[#c8102e] bg-red-50 border border-red-200 px-3 py-1 rounded-full"></span>
+          </div>
+          <div id="line-sample-summary-content"></div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB: VISUAL FLOWCHART & DEEP ANALYTICS (مخطط الجودة والتحليل الشامل) -->
+      <!-- ============================================================== -->
+      <section id="tab-flowchart" class="tab-pane hidden fade-in">
+        
+        <!-- Filters Bar -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-[#c8102e] text-white flex items-center justify-center text-lg font-bold shadow-md shadow-red-700/20">
+              <i class="fa-solid fa-diagram-project"></i>
+            </div>
+            <div>
+              <h2 class="font-bold text-sm text-slate-800">مخطط تدفق الجودة والتحليل الشامل للمصنع</h2>
+              <p class="text-xs text-slate-500">تحليل مقارن تفاعلي للخطوط، واكتشاف أفضل وأسوأ خطوط الإنتاج بدقة إحصائية وفلاتر مرنة</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <select id="flow-filter-preset" onchange="FlowchartModule.handlePresetChange(this.value)" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+              <option value="today">اليوم</option>
+              <option value="yesterday">أمس</option>
+              <option value="last7">آخر 7 أيام</option>
+              <option value="this_month">هذا الشهر</option>
+              <option value="all">كل الفترات</option>
+            </select>
+
+            <input type="date" id="flow-filter-from" onchange="FlowchartModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+            <span class="text-xs text-slate-400">إلى</span>
+            <input type="date" id="flow-filter-to" onchange="FlowchartModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+
+            <select id="flow-filter-dept" onchange="FlowchartModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold text-slate-800">
+              <option value="all">كل الأقسام</option>
+              <option value="home">قسم الأجهزة المنزلية</option>
+              <option value="seria">قسم السريا</option>
+            </select>
+
+            <select id="flow-filter-line" onchange="FlowchartModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+              <option value="">جميع الخطوط</option>
+            </select>
+
+            <select id="flow-filter-product" onchange="FlowchartModule.load()" class="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5">
+              <option value="">جميع المنتجات</option>
+            </select>
+
+            <button onclick="FlowchartModule.load()" class="bg-[#c8102e] hover:bg-[#991b1b] text-white px-4 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-rotate"></i> تحديث التحليل
+            </button>
+          </div>
+        </div>
+
+        <!-- Best & Worst Line Spotlight Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          
+          <!-- Best Line Card (🏆) -->
+          <div class="bg-gradient-to-br from-emerald-50 to-emerald-100/60 border-2 border-emerald-300 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+            <div class="absolute -left-6 -bottom-6 text-emerald-200/50 text-9xl font-black pointer-events-none select-none">
+              <i class="fa-solid fa-trophy"></i>
+            </div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-sm shadow-md shadow-emerald-600/30">
+                  <i class="fa-solid fa-trophy"></i>
+                </span>
+                <span class="text-xs font-extrabold text-emerald-900 uppercase tracking-wider">أفضل خط إنتاج (الأعلى جودة)</span>
+              </div>
+              <span id="best-line-rank-badge" class="bg-emerald-600 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-sm">الرتبة الأولى 🥇</span>
+            </div>
+
+            <div class="space-y-2 relative z-10">
+              <div class="flex items-baseline justify-between border-b border-emerald-200/60 pb-2">
+                <span class="text-sm font-black text-slate-800" id="best-line-name">خط الإنتاج: —</span>
+                <span class="text-xs font-bold text-indigo-800" id="best-line-product">المنتج: —</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 pt-1 text-center">
+                <div class="bg-white/80 p-2 rounded-xl border border-emerald-200">
+                  <span class="text-[10px] text-slate-500 font-bold block">معدل العيوب</span>
+                  <span id="best-line-defect-rate" class="text-lg font-black text-emerald-700">0%</span>
+                </div>
+                <div class="bg-white/80 p-2 rounded-xl border border-emerald-200">
+                  <span class="text-[10px] text-slate-500 font-bold block">نسبة القبول</span>
+                  <span id="best-line-accept-rate" class="text-lg font-black text-emerald-800">100%</span>
+                </div>
+                <div class="bg-white/80 p-2 rounded-xl border border-emerald-200">
+                  <span class="text-[10px] text-slate-500 font-bold block">بلتات مقبولة</span>
+                  <span id="best-line-acc-pallets" class="text-lg font-black text-slate-800">0</span>
+                </div>
+              </div>
+              <div class="flex justify-between items-center text-xs text-emerald-950 pt-2 font-medium">
+                <span>المشرف المسؤول: <strong id="best-line-supervisor" class="font-bold text-slate-900">—</strong></span>
+                <span class="text-emerald-700 font-bold"><i class="fa-solid fa-check-circle ml-1"></i> أداء نموذجي ومطابق للمواصفات</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Worst Line Card (⚠️) -->
+          <div class="bg-gradient-to-br from-red-50 to-red-100/60 border-2 border-red-300 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+            <div class="absolute -left-6 -bottom-6 text-red-200/50 text-9xl font-black pointer-events-none select-none">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center text-sm shadow-md shadow-red-600/30">
+                  <i class="fa-solid fa-triangle-exclamation"></i>
+                </span>
+                <span class="text-xs font-extrabold text-red-900 uppercase tracking-wider">الخط الأكثر عيوباً (بحاجة لمتابعة وتدخل)</span>
+              </div>
+              <span id="worst-line-rank-badge" class="bg-red-600 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-sm animate-pulse">تنبيه جودة ⚠️</span>
+            </div>
+
+            <div class="space-y-2 relative z-10">
+              <div class="flex items-baseline justify-between border-b border-red-200/60 pb-2">
+                <span class="text-sm font-black text-slate-800" id="worst-line-name">خط الإنتاج: —</span>
+                <span class="text-xs font-bold text-indigo-800" id="worst-line-product">المنتج: —</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 pt-1 text-center">
+                <div class="bg-white/80 p-2 rounded-xl border border-red-200">
+                  <span class="text-[10px] text-slate-500 font-bold block">معدل العيوب</span>
+                  <span id="worst-line-defect-rate" class="text-lg font-black text-red-700">0%</span>
+                </div>
+                <div class="bg-white/80 p-2 rounded-xl border border-red-200">
+                  <span class="text-[10px] text-slate-500 font-bold block">إجمالي العيوب</span>
+                  <span id="worst-line-defects-count" class="text-lg font-black text-red-800">0</span>
+                </div>
+                <div class="bg-white/80 p-2 rounded-xl border border-red-200">
+                  <span class="text-[10px] text-slate-500 font-bold block">بلتات مرفوضة</span>
+                  <span id="worst-line-rej-pallets" class="text-lg font-black text-slate-800">0</span>
+                </div>
+              </div>
+              <div class="flex justify-between items-center text-xs text-red-950 pt-2 font-medium">
+                <span>المشرف المسؤول: <strong id="worst-line-supervisor" class="font-bold text-slate-900">—</strong></span>
+                <span class="text-red-700 font-bold"><i class="fa-solid fa-circle-exclamation ml-1"></i> أكثر عيب: <span id="worst-line-top-defect">—</span></span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- VISUAL QUALITY PIPELINE FLOWCHART -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6">
+          <div class="flex items-center justify-between pb-4 mb-6 border-b border-slate-100">
+            <div>
+              <h3 class="font-extrabold text-slate-900 text-sm">مخطط تدفق الجودة المباشر (Quality Pipeline Flowchart)</h3>
+              <p class="text-xs text-slate-500">مسار تدفق الوحدات والعينات والقرارات من لحظة الإنتاج وحتى المستودع النهائي</p>
+            </div>
+            <span class="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-full"><i class="fa-solid fa-diagram-project ml-1 text-[#c8102e]"></i> مخطط إحصائي تفاعلي</span>
+          </div>
+
+          <!-- Flowchart Nodes Diagram -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
+            
+            <!-- Node 1: الوارد -->
+            <div class="flow-node bg-slate-50 border-2 border-slate-300 rounded-2xl p-4 text-center relative transition hover:shadow-md">
+              <div class="w-10 h-10 rounded-full bg-slate-800 text-white flex items-center justify-center mx-auto mb-2 text-sm font-bold shadow-sm">1</div>
+              <h4 class="font-bold text-xs text-slate-600">وارد الإنتاج من الخطوط</h4>
+              <p id="flow-node1-units" class="text-2xl font-black text-slate-900 my-1">0</p>
+              <span id="flow-node1-desc" class="text-[11px] font-semibold text-slate-500 block">0 بالتة مستلمة</span>
+            </div>
+
+            <!-- Arrow 1 to 2 -->
+            <div class="flow-node bg-blue-50 border-2 border-blue-300 rounded-2xl p-4 text-center relative transition hover:shadow-md">
+              <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center mx-auto mb-2 text-sm font-bold shadow-sm">2</div>
+              <h4 class="font-bold text-xs text-blue-900">سحب وفحص العينات</h4>
+              <p id="flow-node2-samples" class="text-2xl font-black text-blue-800 my-1">0</p>
+              <span id="flow-node2-desc" class="text-[11px] font-semibold text-blue-600 block">عينات AQL + سحبات الساعة</span>
+            </div>
+
+            <!-- Node 3: فحص العيوب -->
+            <div class="flow-node bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 text-center relative transition hover:shadow-md">
+              <div class="w-10 h-10 rounded-full bg-amber-600 text-white flex items-center justify-center mx-auto mb-2 text-sm font-bold shadow-sm">3</div>
+              <h4 class="font-bold text-xs text-amber-900">تحليل العيوب والمطابقة</h4>
+              <p id="flow-node3-rate" class="text-2xl font-black text-amber-800 my-1">0%</p>
+              <span id="flow-node3-desc" class="text-[11px] font-semibold text-amber-700 block">0 عيب مكتشف</span>
+            </div>
+
+            <!-- Node 4: القرار النهائي -->
+            <div class="flow-node bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 text-center relative transition hover:shadow-md">
+              <div class="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto mb-2 text-sm font-bold shadow-sm">4</div>
+              <h4 class="font-bold text-xs text-emerald-900">الاعتماد للمستودع</h4>
+              <p id="flow-node4-acc" class="text-2xl font-black text-emerald-800 my-1">0</p>
+              <span id="flow-node4-desc" class="text-[11px] font-semibold text-emerald-700 block">0 وحدة مقبولة تماماً</span>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Analytical Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h4 class="font-bold text-xs text-slate-700 mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-bar text-[#c8102e]"></i> مقارنة معدل عيوب الخطوط (من الأفضل للأسوأ):</h4>
+            <div class="h-64"><canvas id="chart-flow-lines"></canvas></div>
+          </div>
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h4 class="font-bold text-xs text-slate-700 mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-pie text-indigo-700"></i> تحليل باريتو لأكثر العيوب تكراراً (Pareto Analysis):</h4>
+            <div class="h-64"><canvas id="chart-flow-pareto"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Comprehensive Line Rankings Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700">جدول الترتيب والتقييم الشامل لجميع خطوط الإنتاج:</span>
+            <button onclick="FlowchartModule.exportExcel()" class="bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-file-excel"></i> تصدير إكسيل
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="custom-table text-sm">
+              <thead>
+                <tr>
+                  <th class="text-center">الرتبة</th>
+                  <th>اسم الخط</th>
+                  <th>اسم المنتج</th>
+                  <th>مشرف الخط</th>
+                  <th>إجمالي الإنتاج</th>
+                  <th>العينات المفحوصة</th>
+                  <th>العيوب المكتشفة</th>
+                  <th>معدل العيوب %</th>
+                  <th>نسبة القبول %</th>
+                  <th>أكثر عيب متكرر</th>
+                  <th class="text-center">التقييم</th>
+                </tr>
+              </thead>
+              <tbody id="flow-rankings-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -714,7 +1528,7 @@
                     <th>اسم مراقب الجودة</th>
                     <th>الوردية</th>
                     <th>المهمة اليومية</th>
-                    <th>رقم الخط المكلف به</th>
+                    <th>اسم الخط المكلف به</th>
                     <th>مشرف الخط</th>
                     <th>ملاحظات</th>
                     <th class="text-center">إجراءات</th>
@@ -1323,6 +2137,247 @@
     </div>
   </div>
 
+  <!-- HOURLY SAMPLE MODAL (سحب وفحص عينة بالساعة) -->
+  <div id="modal-hourly-sample" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 fade-in my-8 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-sm">
+            <i class="fa-solid fa-stopwatch"></i>
+          </div>
+          <div>
+            <h3 id="modal-hourly-title" class="font-bold text-slate-900 text-base">سحب عينة بالساعة (فحص دوري)</h3>
+            <span class="text-[11px] text-slate-500">فحص عينة دورية لمتابعة جودة الخط بدون إدخال بلتات</span>
+          </div>
+        </div>
+        <button onclick="HourlyModule.closeAddModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="hourly-sample-form" onsubmit="event.preventDefault(); HourlyModule.saveSample();" class="space-y-3.5 text-xs">
+        <input type="hidden" id="hourly-sample-id">
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">تاريخ السحب <span class="text-red-500">*</span></label>
+            <input type="date" id="hourly-date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">ساعة / فترة السحب <span class="text-red-500">*</span></label>
+            <select id="hourly-slot" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-blue-800">
+              <!-- Dynamically populated from hourly_sample_slots -->
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">خط التجميع <span class="text-red-500">*</span></label>
+            <select id="hourly-line" required onchange="HourlyModule.handleLineChange(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Lines -->
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">اسم المنتج المشغل <span class="text-red-500">*</span></label>
+            <select id="hourly-product" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Products -->
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">الوردية <span class="text-red-500">*</span></label>
+            <select id="hourly-shift" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Shifts -->
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">مراقب الجودة القائم بالسحب</label>
+            <select id="hourly-inspector" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Inspectors -->
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+          <div>
+            <label class="block font-bold mb-1">حجم العينة المسحوبة <span class="text-red-500">*</span></label>
+            <input type="number" id="hourly-sample-qty" min="1" value="5" required oninput="HourlyModule.calculateDecision()" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-indigo-700 text-center text-sm">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">إجمالي العيوب المكتشفة</label>
+            <input type="number" id="hourly-defects-qty" min="0" value="0" required oninput="HourlyModule.calculateDecision()" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 font-extrabold text-red-700 text-center text-sm">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">قرار العينة بالساعة</label>
+            <select id="hourly-decision" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 font-bold text-center">
+              <option value="مقبول">✓ مقبول</option>
+              <option value="مرفوض">✕ مرفوض</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Defect Breakdown Rows -->
+        <div id="hourly-defects-section" class="p-3 border border-red-200 bg-red-50/40 rounded-2xl">
+          <div class="flex items-center justify-between mb-2">
+            <label class="font-bold text-red-900 text-xs flex items-center gap-1.5">
+              <i class="fa-solid fa-bug text-[#c8102e]"></i> تفصيل أسباب العيوب في عينة الساعة:
+            </label>
+            <button type="button" onclick="HourlyModule.addDefectRow()" class="text-red-800 bg-red-100 hover:bg-red-200 px-2.5 py-1 rounded-lg text-[11px] font-bold transition">
+              + إضافة عيب
+            </button>
+          </div>
+          <div id="hourly-defects-rows" class="space-y-2">
+            <!-- Dynamic rows -->
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">ملاحظات الفحص بالساعة:</label>
+          <input type="text" id="hourly-notes" placeholder="أي ملاحظات حول الخط أو الأجزاء..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t">
+          <button type="button" onclick="HourlyModule.closeAddModal()" class="px-4 py-2 text-slate-600 font-semibold">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold px-6 py-2.5 rounded-xl shadow-md transition">حفظ سحب العينة</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- DAILY PRODUCTION MANUAL ENTRY MODAL (تسجيل الإنتاج الفعلي بنهاية اليوم) -->
+  <div id="modal-daily-production" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-indigo-700 text-white flex items-center justify-center font-bold text-sm">
+            <i class="fa-solid fa-calculator"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">تسجيل الإنتاج الفعلي للخط (نهاية اليوم)</h3>
+            <span class="text-[11px] text-slate-500">إدخال إجمالي كمية الأجهزة المنتجة لمطابقتها مع سحبات الساعة</span>
+          </div>
+        </div>
+        <button onclick="HourlyModule.closeDailyProdModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="daily-production-form" onsubmit="event.preventDefault(); HourlyModule.saveDailyProduction();" class="space-y-3.5 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">تاريخ الإنتاج <span class="text-red-500">*</span></label>
+            <input type="date" id="daily-prod-date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">الوردية <span class="text-red-500">*</span></label>
+            <select id="daily-prod-shift" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Shifts -->
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">خط الإنتاج <span class="text-red-500">*</span></label>
+            <select id="daily-prod-line" required onchange="HourlyModule.handleDailyProdLineChange(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Lines -->
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">المنتج / الجهاز <span class="text-red-500">*</span></label>
+            <select id="daily-prod-product" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold">
+              <!-- Products -->
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">إجمالي الإنتاج الفعلي (عدد الأجهزة المنتج بالكامل) <span class="text-red-500">*</span></label>
+          <input type="number" id="daily-prod-qty" min="1" required placeholder="مثال: 850 جهاز" class="w-full bg-indigo-50/50 border-2 border-indigo-300 rounded-xl px-4 py-2.5 font-black text-indigo-950 text-base">
+          <span class="text-[10px] text-slate-500 mt-1 block">يتم احتساب معدل الجودة ونسبة العيوب التقديرية بمقارنة هذا الرقم مع سحبات عينات الساعة</span>
+        </div>
+
+        <div>
+          <label class="block font-bold mb-1">ملاحظات وردية الإنتاج:</label>
+          <input type="text" id="daily-prod-notes" placeholder="سير العمل، توقفات إنتاج، قطع غيار..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t">
+          <button type="button" onclick="HourlyModule.closeDailyProdModal()" class="px-4 py-2 text-slate-600 font-semibold">إلغاء</button>
+          <button type="submit" class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold px-6 py-2.5 rounded-xl shadow-md transition">حفظ كمية الإنتاج</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- HOURLY SLOTS MANAGEMENT MODAL (إدارة وتخصيص ساعات وفترات السحب) -->
+  <div id="modal-hourly-slots" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 fade-in max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold text-sm">
+            <i class="fa-solid fa-sliders text-amber-400"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">تخصيص وإدارة فترات وساعات سحب العينات</h3>
+            <span class="text-[11px] text-slate-500">ساعات السحب الافتراضية (8 مرات يومياً من 8:00 إلى 16:00) مع إمكانية إضافة أو تعديل ساعات جديدة</span>
+          </div>
+        </div>
+        <button onclick="HourlyModule.closeSlotsModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <!-- Add New Slot Form -->
+      <form onsubmit="event.preventDefault(); HourlyModule.saveSlot();" class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 mb-4 text-xs">
+        <h4 class="font-bold text-slate-800 mb-2.5 flex items-center gap-1.5"><i class="fa-solid fa-plus-circle text-[#c8102e]"></i> إضافة فترة سحب جديدة:</h4>
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+          <div class="sm:col-span-2">
+            <label class="block font-bold mb-1">اسم الفترة:</label>
+            <input type="text" id="slot-name" required placeholder="من 4 إلى 5 مساءً" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">من (البدء):</label>
+            <input type="time" id="slot-start" required value="16:00" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">إلى (الانتهاء):</label>
+            <input type="time" id="slot-end" required value="17:00" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+          </div>
+        </div>
+        <div class="flex items-center justify-between mt-3 pt-2 border-t border-slate-200">
+          <div class="flex items-center gap-2">
+            <label class="font-bold text-slate-700">ترتيب الظهور:</label>
+            <input type="number" id="slot-order" min="1" value="9" class="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-center font-bold">
+          </div>
+          <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold px-4 py-1.5 rounded-xl shadow transition">
+            + إضافة هذه الفترة
+          </button>
+        </div>
+      </form>
+
+      <!-- Existing Slots Table -->
+      <div class="overflow-x-auto border border-slate-200 rounded-2xl">
+        <table class="custom-table text-xs">
+          <thead>
+            <tr>
+              <th class="text-center">#</th>
+              <th>اسم فترة السحب</th>
+              <th>وقت البدء</th>
+              <th>وقت الانتهاء</th>
+              <th class="text-center">الحالة</th>
+              <th class="text-center">إجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="slots-tbody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-end pt-4 mt-4 border-t">
+        <button type="button" onclick="HourlyModule.closeSlotsModal()" class="bg-slate-800 text-white font-bold px-5 py-2 rounded-xl text-xs">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Standard Modals: Line, Product, Inspector, Assignment, Settings, Confirm Delete -->
   <!-- Line Modal -->
   <div id="modal-line" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
@@ -1339,10 +2394,20 @@
         </div>
         <div><label class="block font-bold mb-1">مشرف الخط:</label><input type="text" id="l-supervisor" required class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
         <div><label class="block font-bold mb-1">الجهاز الحالي:</label><select id="l-product" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></select></div>
-        <div><label class="block font-bold mb-1">حالة الخط:</label>
-          <select id="l-status" class="w-full bg-slate-50 border rounded-xl px-3 py-2">
-            <option value="نشط">نشط</option><option value="متوقف">متوقف</option><option value="صيانة">صيانة</option>
-          </select>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold mb-1">حالة الخط:</label>
+            <select id="l-status" class="w-full bg-slate-50 border rounded-xl px-3 py-2">
+              <option value="نشط">نشط</option><option value="متوقف">متوقف</option><option value="صيانة">صيانة</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">القسم التابع له:</label>
+            <select id="l-department" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold">
+              <option value="home">الأجهزة المنزلية</option>
+              <option value="seria">قسم السريا</option>
+            </select>
+          </div>
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t">
           <button type="button" onclick="LinesModule.closeModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
@@ -1366,9 +2431,16 @@
           <div><label class="block font-bold mb-1">اسم الجهاز:</label><input type="text" id="prod-name" required placeholder="خلاط منزلي توب ماكس" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold"></div>
         </div>
         <div><label class="block font-bold mb-1">المواصفات الفنية:</label><input type="text" id="prod-specs" placeholder="500 وات، 1.5 لتر..." class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-3 gap-3">
           <div><label class="block font-bold mb-1">الوزن / القدرة:</label><input type="text" id="prod-weight" placeholder="2.4 كجم" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></div>
           <div><label class="block font-bold mb-1">خط التجميع الافتراضي:</label><select id="prod-line" class="w-full bg-slate-50 border rounded-xl px-3 py-2"></select></div>
+          <div>
+            <label class="block font-bold mb-1">القسم التابع له:</label>
+            <select id="prod-department" class="w-full bg-slate-50 border rounded-xl px-3 py-2 font-bold">
+              <option value="home">الأجهزة المنزلية</option>
+              <option value="seria">قسم السريا</option>
+            </select>
+          </div>
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t">
           <button type="button" onclick="ProductsModule.closeModal()" class="px-3 py-1.5 text-slate-600">إلغاء</button>
@@ -1427,6 +2499,156 @@
   </div>
 
   <!-- Generic Lookups Modal -->
+  <div id="modal-line-sample-slots" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div>
+          <h3 class="font-bold text-slate-900">إدارة فترات سحب العينات</h3>
+          <p class="text-xs text-slate-500 mt-1">الفترات الافتراضية من 8:00 إلى 16:00، ويمكنك إضافة فترات أو حذفها.</p>
+        </div>
+        <button type="button" onclick="LineSamplesModule.closeSlotsModal()" class="text-slate-400 hover:text-slate-600" aria-label="إغلاق"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form onsubmit="event.preventDefault(); LineSamplesModule.addSlot();" class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 mb-4">
+        <div>
+          <label for="line-sample-slot-start" class="block font-bold text-xs mb-1">من</label>
+          <input id="line-sample-slot-start" type="time" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label for="line-sample-slot-end" class="block font-bold text-xs mb-1">إلى</label>
+          <input id="line-sample-slot-end" type="time" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+        </div>
+        <button type="submit" class="self-end bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-4 py-2.5 rounded-xl">إضافة الفترة</button>
+      </form>
+      <div id="line-sample-slots-list" class="space-y-2 max-h-72 overflow-y-auto text-sm"></div>
+    </div>
+  </div>
+
+  <div id="modal-line-sample-stations" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 fade-in">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <h3 class="font-bold text-slate-900">إدارة محطات الفحص</h3>
+        <button type="button" onclick="LineSamplesModule.closeStationsModal()" class="text-slate-400 hover:text-slate-600" aria-label="إغلاق"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form onsubmit="event.preventDefault(); LineSamplesModule.addStation();" class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 mb-4">
+        <input id="line-sample-station-name" type="text" maxlength="100" required placeholder="اسم محطة الفحص" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+        <select id="line-sample-station-inspector" required class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+          <option value="">اختر المراقب المسؤول...</option>
+        </select>
+        <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-4 py-2 rounded-xl">إضافة</button>
+      </form>
+      <div id="line-sample-stations-list" class="space-y-2 max-h-72 overflow-y-auto text-sm"></div>
+    </div>
+  </div>
+
+  <div id="modal-line-sample-defects" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 fade-in max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div>
+          <h3 class="font-bold text-slate-900">إنهاء فحص سحبة العينات</h3>
+          <p class="text-xs text-slate-500 mt-1">سجّل أسباب العيوب وكمياتها، أو أنهِ الفحص دون عيوب.</p>
+        </div>
+        <button type="button" onclick="LineSamplesModule.closeDefectsModal()" class="text-slate-400 hover:text-slate-600" aria-label="إغلاق"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form onsubmit="event.preventDefault(); LineSamplesModule.completePull();">
+        <fieldset class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
+          <legend class="px-1 text-xs font-extrabold text-slate-800">هل تم رفض البالتة؟</legend>
+          <div class="flex flex-wrap gap-4 text-xs">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 font-bold text-slate-700">
+              <input type="radio" name="line-sample-pallet-rejected" value="0" required class="h-4 w-4 accent-emerald-600">
+              لا، البالتة مقبولة
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 font-bold text-red-700">
+              <input type="radio" name="line-sample-pallet-rejected" value="1" required class="h-4 w-4 accent-red-600">
+              نعم، البالتة مرفوضة
+            </label>
+          </div>
+        </fieldset>
+        <div id="line-sample-defect-rows" class="space-y-2"></div>
+        <button type="button" onclick="LineSamplesModule.addDefectRow()" class="mt-3 text-xs font-bold text-blue-700 hover:text-blue-900"><i class="fa-solid fa-plus ml-1"></i>إضافة سبب عيب</button>
+        <button type="button" onclick="LineSamplesModule.toggleQuickReasonForm('line-sample-defect-rows')" class="mt-3 mr-3 text-xs font-bold text-emerald-700 hover:text-emerald-900"><i class="fa-solid fa-circle-plus ml-1"></i>العيب غير موجود؟ أضفه</button>
+        <div id="line-sample-quick-reason-line-sample-defect-rows" class="hidden mt-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50">
+          <label for="line-sample-quick-reason-name-line-sample-defect-rows" class="block text-xs font-bold mb-2">اسم العيب الجديد</label>
+          <div class="flex flex-wrap gap-2">
+            <input id="line-sample-quick-reason-name-line-sample-defect-rows" type="text" maxlength="150" class="flex-1 min-w-40 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs" placeholder="اكتب وصف العيب">
+            <button type="button" onclick="LineSamplesModule.quickAddReason('line-sample-defect-rows')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl">إضافة واختيار</button>
+            <button type="button" onclick="LineSamplesModule.toggleQuickReasonForm('line-sample-defect-rows', false)" class="bg-white border border-slate-300 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl">إلغاء</button>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5 pt-4 border-t">
+          <button type="button" onclick="LineSamplesModule.closeDefectsModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-5 py-2.5 rounded-xl">حفظ وإنهاء الفحص</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modal-line-sample-edit" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-slate-100 fade-in max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b pb-3 mb-4">
+        <div>
+          <h3 class="font-bold text-slate-900">تعديل سحبة العينات</h3>
+          <p id="line-sample-edit-status" class="text-xs text-slate-500 mt-1"></p>
+        </div>
+        <button type="button" onclick="LineSamplesModule.closeEditModal()" class="text-slate-400 hover:text-slate-600" aria-label="إغلاق"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form onsubmit="event.preventDefault(); LineSamplesModule.saveEdit();">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 text-xs">
+          <div><label for="line-sample-edit-date" class="block font-bold mb-1">التاريخ</label><input id="line-sample-edit-date" type="date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></div>
+          <div><label for="line-sample-edit-slot" class="block font-bold mb-1">فترة السحب</label><select id="line-sample-edit-slot" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></select></div>
+          <div><label for="line-sample-edit-line" class="block font-bold mb-1">الخط</label><select id="line-sample-edit-line" required onchange="LineSamplesModule.handleEditLineChange(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></select></div>
+          <div><label for="line-sample-edit-product" class="block font-bold mb-1">المنتج</label><select id="line-sample-edit-product" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></select></div>
+          <div><label for="line-sample-edit-station" class="block font-bold mb-1">محطة الفحص</label><select id="line-sample-edit-station" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></select></div>
+          <div><label for="line-sample-edit-inspector" class="block font-bold mb-1">المراقب الأساسي</label><select id="line-sample-edit-inspector" onchange="LineSamplesModule.populateAdditionalInspectorOptions('line-sample-edit')" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></select></div>
+          <div><label for="line-sample-edit-quantity" class="block font-bold mb-1">إجمالي عدد العينات</label><input id="line-sample-edit-quantity" type="number" min="1" step="1" oninput="LineSamplesModule.updatePrimarySampleCount('line-sample-edit')" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></div>
+          <div class="sm:col-span-2 xl:col-span-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <input id="line-sample-edit-has-additional-inspector" type="checkbox" onchange="LineSamplesModule.toggleAdditionalInspector('line-sample-edit')" class="h-4 w-4 accent-[#c8102e]">
+            <label for="line-sample-edit-has-additional-inspector" class="font-bold">هل شارك مراقب إضافي في السحبة؟</label>
+            <span class="text-slate-500">عدد عيناته يُخصم من الإجمالي ويُسجل على اسمه.</span>
+          </div>
+          <div id="line-sample-edit-additional-inspector-fields" class="hidden sm:col-span-2 xl:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
+            <div>
+              <label for="line-sample-edit-additional-inspector" class="block font-bold mb-1">المراقب الإضافي</label>
+              <select id="line-sample-edit-additional-inspector" onchange="LineSamplesModule.updatePrimarySampleCount('line-sample-edit')" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2">
+                <option value="">اختر المراقب الإضافي...</option>
+              </select>
+            </div>
+            <div>
+              <label for="line-sample-edit-additional-quantity" class="block font-bold mb-1">عدد العينات التي فحصها</label>
+              <input id="line-sample-edit-additional-quantity" type="number" min="1" step="1" oninput="LineSamplesModule.updatePrimarySampleCount('line-sample-edit')" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2">
+            </div>
+            <p class="sm:col-span-2 text-xs text-blue-800">عينات المراقب الأساسي المتبقية: <strong id="line-sample-edit-primary-sample-count">0</strong></p>
+          </div>
+        </div>
+        <div id="line-sample-edit-defects-section" class="mt-5 pt-4 border-t">
+          <h4 class="font-bold text-sm text-slate-800 mb-2">العيوب المسجلة في الفحص المكتمل</h4>
+          <div class="mb-4 rounded-xl border border-red-200 bg-red-50 p-3">
+            <label for="line-sample-edit-pallet-rejected" class="block text-xs font-bold mb-1">حالة البالتة</label>
+            <select id="line-sample-edit-pallet-rejected" class="w-full sm:w-64 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs">
+              <option value="">اختر حالة البالتة...</option>
+              <option value="0">البالتة غير مرفوضة</option>
+              <option value="1">البالتة مرفوضة</option>
+            </select>
+          </div>
+          <div id="line-sample-edit-defect-rows" class="space-y-2"></div>
+          <button type="button" onclick="LineSamplesModule.addDefectRow('line-sample-edit-defect-rows')" class="mt-3 text-xs font-bold text-blue-700 hover:text-blue-900"><i class="fa-solid fa-plus ml-1"></i>إضافة سبب عيب</button>
+          <button type="button" onclick="LineSamplesModule.toggleQuickReasonForm('line-sample-edit-defect-rows')" class="mt-3 mr-3 text-xs font-bold text-emerald-700 hover:text-emerald-900"><i class="fa-solid fa-circle-plus ml-1"></i>العيب غير موجود؟ أضفه</button>
+          <div id="line-sample-quick-reason-line-sample-edit-defect-rows" class="hidden mt-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50">
+            <label for="line-sample-quick-reason-name-line-sample-edit-defect-rows" class="block text-xs font-bold mb-2">اسم العيب الجديد</label>
+            <div class="flex flex-wrap gap-2">
+              <input id="line-sample-quick-reason-name-line-sample-edit-defect-rows" type="text" maxlength="150" class="flex-1 min-w-40 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs" placeholder="اكتب وصف العيب">
+              <button type="button" onclick="LineSamplesModule.quickAddReason('line-sample-edit-defect-rows')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl">إضافة واختيار</button>
+              <button type="button" onclick="LineSamplesModule.toggleQuickReasonForm('line-sample-edit-defect-rows', false)" class="bg-white border border-slate-300 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl">إلغاء</button>
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5 pt-4 border-t">
+          <button type="button" onclick="LineSamplesModule.closeEditModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl">إلغاء</button>
+          <button type="submit" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-5 py-2.5 rounded-xl">حفظ التعديلات</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="modal-generic" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 fade-in">
       <div class="flex items-center justify-between border-b pb-3 mb-4">
@@ -1466,6 +2688,401 @@
         <button id="btn-confirm-cancel" class="px-4 py-2 rounded-xl text-slate-600 text-xs font-bold">إلغاء</button>
         <button id="btn-confirm-ok" class="bg-[#c8102e] hover:bg-[#991b1b] text-white font-bold text-xs px-5 py-2.5 rounded-xl transition">تأكيد الحذف</button>
       </div>
+    </div>
+  </div>
+  <footer class="creator-footer no-print">
+    <div class="creator-footer-inner">
+      <div class="creator-signature">
+        <span class="creator-mark" aria-hidden="true">Y</span>
+        <div>
+          <span class="creator-label">تصميم وتطوير</span>
+          <strong>Youssif El-said</strong>
+        </div>
+      </div>
+      <nav class="creator-social-links" aria-label="حسابات Youssif El-said على مواقع التواصل">
+        <a href="https://www.facebook.com/yousefelsaed.elgamal" target="_blank" rel="noopener noreferrer" aria-label="Facebook" title="Facebook">
+          <i class="fa-brands fa-facebook-f" aria-hidden="true"></i><span>Facebook</span>
+        </a>
+        <a href="http://tiktok.com/@youssif_alsaid" target="_blank" rel="noopener noreferrer" aria-label="TikTok" title="TikTok">
+          <i class="fa-brands fa-tiktok" aria-hidden="true"></i><span>TikTok</span>
+        </a>
+        <a href="https://www.instagram.com/youssifelsaid01?srtk=MTU1ZHF3ZWg0aW5iYg==" target="_blank" rel="noopener noreferrer" aria-label="Instagram" title="Instagram">
+          <i class="fa-brands fa-instagram" aria-hidden="true"></i><span>Instagram</span>
+        </a>
+        <a href="https://youtube.com/@youssif_el-said?si=3G12URkrjhsDKIrO" target="_blank" rel="noopener noreferrer" aria-label="YouTube" title="YouTube">
+          <i class="fa-brands fa-youtube" aria-hidden="true"></i><span>YouTube</span>
+        </a>
+        <a href="https://www.linkedin.com/in/youssif-alsaid?utm_source=share_via&amp;utm_content=profile&amp;utm_medium=member_android" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" title="LinkedIn">
+          <i class="fa-brands fa-linkedin-in" aria-hidden="true"></i><span>LinkedIn</span>
+        </a>
+      </nav>
+    </div>
+  </footer>
+  </div>
+
+  <div id="scrap-system" class="hidden flex-col flex-1">
+    <div class="bg-amber-500 h-1.5"></div>
+    <header class="bg-white border-b border-slate-200 shadow-sm">
+      <div class="mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center gap-3 h-16">
+          <div class="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-white font-extrabold text-2xl shadow-md shadow-amber-700/20">
+            م
+          </div>
+          <div>
+            <h1 class="text-lg font-extrabold text-slate-900 leading-tight">المغربي <span class="text-xs font-semibold text-amber-600">EL MAGHRABY</span></h1>
+            <p class="text-xs text-slate-500 font-medium">نظام إدارة الهوالك</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="flex-1 flex mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 gap-6">
+      <aside class="w-64 flex-shrink-0 bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm h-fit">
+        <div class="pb-3 mb-2 border-b border-slate-100">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">قائمة نظام الهوالك</span>
+        </div>
+        <nav aria-label="قائمة نظام الهوالك">
+          <button id="scrap-nav-dashboard" type="button" onclick="ScrapReportModule.showView('dashboard')" class="scrap-nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 transition">
+            <i class="fa-solid fa-chart-pie w-5 text-center"></i><span>لوحة التحكم</span>
+          </button>
+          <button id="scrap-nav-reports" type="button" onclick="ScrapReportModule.showView('reports')" class="scrap-nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-sm text-amber-700 bg-amber-50 border border-amber-100 transition">
+            <i class="fa-solid fa-file-lines w-5 text-center"></i><span>تقارير الهالك</span>
+          </button>
+          <button id="scrap-nav-second-sort" type="button" onclick="ScrapReportModule.showView('second-sort')" class="scrap-nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-600 hover:bg-slate-50 transition">
+            <i class="fa-solid fa-boxes-stacked w-5 text-center"></i><span>تسليم الفرز الثاني</span>
+          </button>
+        </nav>
+      </aside>
+
+      <main class="flex-1 min-w-0">
+        <section id="scrap-dashboard-view" class="hidden" aria-labelledby="scrap-dashboard-title">
+          <h2 id="scrap-dashboard-title" class="text-xl font-extrabold text-slate-900">لوحة التحكم</h2>
+          <p class="text-xs text-slate-500 mt-1 mb-5">تحليل مجمع لكل تقارير الهالك الساعية والتقارير بدون فترات.</p>
+          <div id="scrap-analysis-summary" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5"></div>
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="font-bold text-sm text-slate-800 mb-3">تحليل حسب السبب</h3>
+              <div class="overflow-x-auto"><table class="custom-table text-xs w-full"><thead><tr><th>السبب</th><th class="text-center">الكمية</th></tr></thead><tbody id="scrap-analysis-causes"></tbody></table></div>
+            </section>
+            <section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="font-bold text-sm text-slate-800 mb-3">تحليل حسب المنتج</h3>
+              <div class="overflow-x-auto"><table class="custom-table text-xs w-full"><thead><tr><th>المنتج</th><th class="text-center">الكمية</th></tr></thead><tbody id="scrap-analysis-products"></tbody></table></div>
+            </section>
+            <section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="font-bold text-sm text-slate-800 mb-3">تحليل حسب الخط</h3>
+              <div class="overflow-x-auto"><table class="custom-table text-xs w-full"><thead><tr><th>الخط</th><th class="text-center">الكمية</th></tr></thead><tbody id="scrap-analysis-lines"></tbody></table></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="scrap-reports-view" aria-labelledby="scrap-reports-title">
+          <div id="scrap-reports-list-view">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div>
+                <h2 id="scrap-reports-title" class="text-xl font-extrabold text-slate-900">تقارير الهالك</h2>
+                <p class="text-xs text-slate-500 mt-1">أضف أكثر من تقرير في اليوم، أو اختر تاريخًا لعرض التقارير المحفوظة فيه.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" onclick="ScrapReportModule.newReport('hourly')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition">
+                  <i class="fa-solid fa-clock ml-1"></i> تقرير هالك ساعي
+                </button>
+                <button type="button" onclick="ScrapReportModule.newReport('manual')" class="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition">
+                  <i class="fa-solid fa-plus ml-1"></i> تقرير بدون فترات
+                </button>
+              </div>
+            </div>
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-4 flex flex-wrap items-end gap-3">
+              <div>
+                <label for="scrap-filter-date" class="block text-xs font-bold text-slate-600 mb-1">عرض تقارير التاريخ</label>
+                <input id="scrap-filter-date" type="date" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+              </div>
+              <button type="button" onclick="ScrapReportModule.loadReports()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-4 py-2.5 rounded-xl">عرض التقارير</button>
+              <button type="button" onclick="ScrapReportModule.clearDateFilter()" class="text-slate-600 hover:bg-slate-100 font-bold text-xs px-3 py-2.5 rounded-xl">كل التواريخ</button>
+            </div>
+            <div id="scrap-reports-list" class="space-y-3" aria-live="polite"></div>
+          </div>
+
+          <div id="scrap-report-editor" class="hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-5 no-print">
+              <div>
+                <h2 id="scrap-editor-title" class="text-xl font-extrabold text-slate-900">تقرير هالك جديد</h2>
+                <p class="text-xs text-slate-500 mt-1">أدخل البيانات واحفظ التقرير؛ يمكنك إضافة أكثر من تقرير في نفس اليوم.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" onclick="ScrapReportModule.backToReports()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl">العودة للتقارير</button>
+                <button type="button" onclick="window.print()" class="bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl">
+                  <i class="fa-solid fa-print ml-1"></i> طباعة
+                </button>
+                <button type="button" onclick="ScrapReportModule.saveReport()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl">
+                  <i class="fa-solid fa-floppy-disk ml-1"></i> حفظ التقرير
+                </button>
+              </div>
+            </div>
+
+          <div id="scrap-report" class="space-y-5">
+            <section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="font-bold text-sm text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-clipboard-list text-amber-500"></i> البيانات الأساسية
+              </h3>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <label for="scrap-report-date" class="block text-xs font-bold text-slate-600 mb-1">تاريخ التقرير</label>
+                  <input id="scrap-report-date" type="date" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                </div>
+                <div>
+                  <label for="scrap-report-day" class="block text-xs font-bold text-slate-600 mb-1">اليوم</label>
+                  <input id="scrap-report-day" type="text" readonly placeholder="يُحدد تلقائيًا من التاريخ" class="w-full bg-slate-100 border border-slate-300 rounded-xl px-3 py-2">
+                </div>
+                <div id="scrap-hourly-line-field">
+                  <label for="scrap-report-line" class="block text-xs font-bold text-slate-600 mb-1">رقم الخط / خط الإنتاج</label>
+                  <select id="scrap-report-line" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"></select>
+                </div>
+              </div>
+            </section>
+
+            <section id="scrap-hourly-editor" class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h3 class="font-bold text-sm text-slate-800">جدول الهالك الساعي</h3>
+                  <p class="text-[11px] text-slate-500 mt-1">فترات السحب محددة تلقائيًا. اختر أسباب الهالك من القائمة المشتركة مع قسم الجودة.</p>
+                </div>
+                <div class="flex flex-wrap gap-2 no-print">
+                  <button type="button" onclick="ScrapReportModule.addCause()" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs px-3 py-2 rounded-lg">
+                    <i class="fa-solid fa-plus ml-1"></i> إضافة سبب
+                  </button>
+                  <button type="button" onclick="ScrapReportModule.addSharedProduct()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2 rounded-lg">
+                    <i class="fa-solid fa-box-open ml-1"></i> إضافة منتج مشترك
+                  </button>
+                </div>
+              </div>
+              <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="custom-table text-xs min-w-full">
+                  <thead id="scrap-log-head"></thead>
+                  <tbody id="scrap-log-body"></tbody>
+                  <tfoot id="scrap-log-foot" class="bg-slate-50 font-bold"></tfoot>
+                </table>
+              </div>
+            </section>
+
+            <section id="scrap-manual-editor" class="hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h3 class="font-bold text-sm text-slate-800">أصناف تقرير الهالك بدون فترات</h3>
+                  <p class="text-[11px] text-slate-500 mt-1">اختر الخط والمنتج والسبب وأدخل الكمية لكل صنف.</p>
+                </div>
+                <div class="flex gap-2 no-print">
+                  <button type="button" onclick="ScrapReportModule.addManualItem()" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs px-3 py-2 rounded-lg"><i class="fa-solid fa-plus ml-1"></i> إضافة صنف</button>
+                  <button type="button" onclick="ScrapReportModule.addSharedProduct()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2 rounded-lg"><i class="fa-solid fa-box-open ml-1"></i> إضافة منتج للقائمة المشتركة</button>
+                </div>
+              </div>
+              <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="custom-table text-xs min-w-full">
+                  <thead><tr><th class="text-center">م</th><th>الخط</th><th>المنتج</th><th class="text-center">الكمية</th><th>السبب</th><th class="no-print"></th></tr></thead>
+                  <tbody id="scrap-manual-items"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="scrap-report-analysis" class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <h3 class="font-bold text-sm text-slate-800 mb-3">تحليل أسباب الهالك (Pareto)</h3>
+                <div class="overflow-x-auto">
+                  <table class="custom-table text-xs w-full">
+                    <thead><tr><th class="text-center">الترتيب</th><th>سبب الهالك</th><th class="text-center">الكمية</th><th class="text-center">النسبة</th></tr></thead>
+                    <tbody id="scrap-pareto-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="font-bold text-sm text-slate-800 mb-3">الاعتمادات والتوقيعات</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <label for="scrap-production-name" class="block font-bold mb-2">مشرف الخط</label>
+                  <input id="scrap-production-name" type="text" placeholder="اسم المشرف (إن وجد)" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-2">
+                </div>
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <label for="scrap-quality-name" class="block font-bold mb-2">مشرف الجودة</label>
+                  <input id="scrap-quality-name" type="text" placeholder="اسم المشرف (إن وجد)" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-2">
+                </div>
+              </div>
+            </section>
+
+            <section class="bg-amber-50 p-5 rounded-2xl border border-amber-200">
+              <h3 class="font-bold text-sm text-amber-950 mb-2">الملخص التنفيذي لمشرف الجودة</h3>
+              <p id="scrap-executive-summary" class="text-sm text-slate-700 leading-7" aria-live="polite"></p>
+              <label for="scrap-recommendation" class="block text-xs font-bold text-slate-700 mt-3 mb-1">التوصية / الإجراء المطلوب</label>
+              <textarea id="scrap-recommendation" rows="2" placeholder="اكتب التوصيات والإجراءات التصحيحية..." class="w-full bg-white border border-amber-200 rounded-xl px-3 py-2 text-sm"></textarea>
+            </section>
+          </div>
+          </div>
+        </section>
+
+        <section id="scrap-second-sort-view" class="hidden" aria-labelledby="second-sort-title">
+          <div id="second-sort-list-view">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div>
+                <h2 id="second-sort-title" class="text-xl font-extrabold text-slate-900">تسليم الفرز الثاني</h2>
+                <p class="text-xs text-slate-500 mt-1">تقارير محفوظة قابلة للتعديل والطباعة على ورقة A5 أفقية.</p>
+              </div>
+              <button type="button" onclick="SecondSortHandoverModule.newReport()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition">
+                <i class="fa-solid fa-plus ml-1"></i> تقرير تسليم جديد
+              </button>
+            </div>
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-4 flex flex-wrap items-end gap-3">
+              <div>
+                <label for="second-sort-filter-date" class="block text-xs font-bold text-slate-600 mb-1">عرض تقارير التاريخ</label>
+                <input id="second-sort-filter-date" type="date" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+              </div>
+              <button type="button" onclick="SecondSortHandoverModule.loadReports()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-4 py-2.5 rounded-xl">عرض التقارير</button>
+              <button type="button" onclick="SecondSortHandoverModule.clearDateFilter()" class="text-slate-600 hover:bg-slate-100 font-bold text-xs px-3 py-2.5 rounded-xl">كل التواريخ</button>
+            </div>
+            <div id="second-sort-reports-list" class="space-y-3" aria-live="polite"></div>
+          </div>
+
+          <div id="second-sort-editor" class="hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-5 no-print">
+              <div>
+                <h2 id="second-sort-editor-title" class="text-xl font-extrabold text-slate-900">تقرير تسليم جديد</h2>
+                <p class="text-xs text-slate-500 mt-1">التقرير يحتوي على موديل واحد ليطبع كاملًا في صفحة A5 أفقية واحدة.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <div class="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-1 no-print" aria-label="التحكم في حجم خط التقرير">
+                  <button type="button" onclick="SecondSortHandoverModule.changeFontSize(-1)" class="h-8 w-8 rounded-lg bg-slate-100 text-lg font-black hover:bg-slate-200" aria-label="تصغير خط التقرير">A−</button>
+                  <span id="second-sort-font-size" class="min-w-12 text-center text-xs font-bold" aria-live="polite">100٪</span>
+                  <button type="button" onclick="SecondSortHandoverModule.changeFontSize(1)" class="h-8 w-8 rounded-lg bg-slate-100 text-lg font-black hover:bg-slate-200" aria-label="تكبير خط التقرير">A+</button>
+                </div>
+                <button type="button" onclick="SecondSortHandoverModule.backToList()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl">العودة للتقارير</button>
+                <button type="button" onclick="SecondSortHandoverModule.print()" class="bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl">
+                  <i class="fa-solid fa-print ml-1"></i> طباعة A5
+                </button>
+                <button type="button" onclick="SecondSortHandoverModule.save()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl">
+                  <i class="fa-solid fa-floppy-disk ml-1"></i> حفظ التقرير
+                </button>
+              </div>
+            </div>
+            <section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-4 no-print">
+              <div class="max-w-sm">
+                <label for="second-sort-date" class="block text-xs font-bold text-slate-600 mb-1">التاريخ</label>
+                <input id="second-sort-date" type="date" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+              </div>
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label class="block text-xs font-bold text-slate-600">اسم الموديل
+                  <input id="second-sort-model" type="text" maxlength="120" class="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2" placeholder="مثال: كبة - 7077A">
+                </label>
+                <label class="block text-xs font-bold text-slate-600">المشكلة
+                  <textarea id="second-sort-problem" maxlength="300" rows="2" class="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2" placeholder="وصف المشكلة"></textarea>
+                </label>
+                <div class="block text-xs font-bold text-slate-600 md:col-span-2">
+                  <label class="block text-xs font-bold text-slate-600 mb-1">
+                    صور المنتج (يمكنك اختيار أو التقاط أكثر من صورة)
+                    <input id="second-sort-photo" type="file" accept="image/*" multiple class="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                  </label>
+                  <span class="block text-[11px] font-normal text-slate-500 mb-2">يمكنك تحديد عدة صور معاً أو إضافتها تباعاً (حتى 5 صور). سيتم تصغيرها وتنسيقها في ورقة التسليم A5.</span>
+                  
+                  <!-- Thumbnails gallery preview in editor -->
+                  <div id="second-sort-photo-preview-wrap" class="hidden flex-wrap items-center gap-2.5 p-2 bg-slate-100 rounded-xl border border-slate-200">
+                    <div id="second-sort-thumbnails" class="flex flex-wrap items-center gap-2"></div>
+                    <button type="button" onclick="SecondSortHandoverModule.clearAllPhotos()" class="text-red-700 hover:text-red-800 text-xs font-bold bg-white px-2.5 py-1.5 rounded-lg border border-red-200 shadow-xs mr-auto">
+                      <i class="fa-solid fa-trash ml-1"></i>حذف جميع الصور
+                    </button>
+                  </div>
+                </div>
+                <label class="block text-xs font-bold text-slate-600">نسبة الخصم بعد الخصم الأساسي (%)
+                  <input id="second-sort-discount" type="number" min="0" max="100" step="0.01" class="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2" placeholder="%">
+                </label>
+                <label class="block text-xs font-bold text-slate-600">الكمية
+                  <input id="second-sort-quantity" type="number" min="0" step="1" class="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2" placeholder="الكمية">
+                </label>
+                <label class="block text-xs font-bold text-slate-600 md:col-span-2">الاعتماد
+                  <input id="second-sort-approval" type="text" maxlength="100" class="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2" placeholder="الاسم أو الملاحظة، أو اتركه فارغًا للتوقيع اليدوي">
+                </label>
+              </div>
+              <div class="mt-5 pt-4 border-t border-slate-200">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div>
+                    <h3 class="text-sm font-extrabold text-slate-800">التوقيعات على الورقة</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">أضف أو احذف مربعات التوقيع كما تريد. العنوان يظهر فوق الخط، والاسم اختياري.</p>
+                  </div>
+                  <button type="button" onclick="SecondSortHandoverModule.addSignature()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-3 py-2 rounded-xl">
+                    <i class="fa-solid fa-plus ml-1"></i> إضافة توقيع
+                  </button>
+                </div>
+                <div id="second-sort-signatures-editor" class="space-y-2" aria-live="polite"></div>
+              </div>
+            </section>
+
+            <article id="second-sort-paper" class="second-sort-paper" aria-label="تقرير تسليم الفرز الثاني للطباعة">
+              <img class="second-sort-letterhead" src="images/el-maghraby-letterhead.png" alt="">
+              <div class="second-sort-paper-content">
+                <h1>تسليم الفرز الثاني</h1>
+                <p class="second-sort-paper-date">التاريخ: <span id="second-sort-paper-date"></span></p>
+                <table class="second-sort-paper-table">
+                  <thead>
+                    <tr>
+                      <th>اسم الموديل</th><th>المشكلة</th><th>صورة</th>
+                      <th>نسبة الخصم بعد الخصم الأساسي</th><th>الكمية</th><th>الاعتماد</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td id="second-sort-paper-model"></td>
+                      <td id="second-sort-paper-problem"></td>
+                      <td>
+                        <div id="second-sort-paper-photos" class="second-sort-paper-photos-container"></div>
+                      </td>
+                      <td id="second-sort-paper-discount"></td>
+                      <td id="second-sort-paper-quantity"></td>
+                      <td id="second-sort-paper-approval"></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div id="second-sort-paper-signatures" class="second-sort-signatures" data-count="2"></div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="incoming-system" class="hidden flex-col flex-1">
+    <div class="bg-sky-500 h-1.5"></div>
+    <header class="bg-white border-b border-slate-200 shadow-sm">
+      <div class="mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center gap-3 h-16">
+          <div class="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center text-white font-extrabold text-2xl shadow-md shadow-sky-700/20">
+            م
+          </div>
+          <div>
+            <h1 class="text-lg font-extrabold text-slate-900 leading-tight">المغربي <span class="text-xs font-semibold text-sky-600">EL MAGHRABY</span></h1>
+            <p class="text-xs text-slate-500 font-medium">نظام إدارة الوارد</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="flex-1 flex mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 gap-6">
+      <aside class="w-64 flex-shrink-0 bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm h-fit">
+        <div class="pb-3 mb-2 border-b border-slate-100">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">قائمة نظام الوارد</span>
+        </div>
+        <nav aria-label="قائمة نظام الوارد">
+          <div class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-sm text-sky-700 bg-sky-50 border border-sky-100">
+            <i class="fa-solid fa-chart-pie w-5 text-center"></i>
+            <span>لوحة التحكم</span>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="flex-1 min-w-0">
+        <section aria-labelledby="incoming-dashboard-title">
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm min-h-40">
+            <h2 id="incoming-dashboard-title" class="text-base font-bold text-slate-800">داشبورد الوارد</h2>
+          </div>
+        </section>
+      </main>
     </div>
   </div>
 
