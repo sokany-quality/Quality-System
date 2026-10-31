@@ -180,8 +180,8 @@ const ExportsManager = {
             </div>
             <div class="report-meta">
               <div style="font-weight: bold; color: #1e293b; font-size: 13px;">${title}</div>
-              <div>تاريخ الإصدار: ${new Date().toLocaleDateString('ar-EG')}</div>
-              <div>وقت الطباعة: ${new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
+              <div>تاريخ الإصدار: ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}</div>
+              <div>وقت الطباعة: ${new Date().toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })}</div>
             </div>
           </div>
 

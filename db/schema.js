@@ -88,6 +88,7 @@ function initializeDatabase() {
       current_product_id INTEGER REFERENCES products(id),
       status TEXT DEFAULT 'نشط',
       notes TEXT,
+      is_archived INTEGER NOT NULL DEFAULT 0,
       created_by INTEGER REFERENCES users(id),
       updated_by INTEGER REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -215,6 +216,123 @@ function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS scrap_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_date TEXT NOT NULL,
+      line_name TEXT NOT NULL DEFAULT '',
+      causes_json TEXT NOT NULL,
+      periods_json TEXT NOT NULL,
+      report_type TEXT NOT NULL DEFAULT 'hourly',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      production_supervisor TEXT NOT NULL DEFAULT '',
+      quality_supervisor TEXT NOT NULL DEFAULT '',
+      recommendation TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS scrap_reasons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS second_sort_handover_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_date TEXT NOT NULL,
+      item_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS second_sort_reasons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS second_sort_returns_to_first_sort (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_date TEXT NOT NULL,
+      item_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS carton_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier TEXT NOT NULL,
+      received_date TEXT NOT NULL,
+      shipment_number TEXT,
+      total_quantity INTEGER NOT NULL CHECK (total_quantity >= 0),
+      delivery_note_number TEXT,
+      total_items INTEGER NOT NULL CHECK (total_items >= 0),
+      accepted_items INTEGER NOT NULL CHECK (accepted_items >= 0),
+      rejected_items INTEGER NOT NULL CHECK (rejected_items >= 0),
+      rejected_item_code TEXT,
+      notes TEXT,
+      material_type TEXT NOT NULL DEFAULT 'carton' CHECK (material_type IN ('carton', 'plastic')),
+      shipment_count INTEGER NOT NULL DEFAULT 1 CHECK (shipment_count IN (0, 1)),
+      created_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      CHECK (accepted_items + rejected_items = total_items)
+    );
+
+    CREATE TABLE IF NOT EXISTS carton_suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS plastic_suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS plastic_item_names (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS plastic_rejection_reasons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS plastic_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier TEXT NOT NULL,
+      received_date TEXT NOT NULL,
+      production_line_name TEXT NOT NULL DEFAULT '',
+      product_name TEXT,
+      product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      part_name TEXT,
+      quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+      inspected_samples INTEGER NOT NULL CHECK (inspected_samples >= 0),
+      rejected_samples INTEGER NOT NULL CHECK (rejected_samples >= 0 AND rejected_samples <= inspected_samples),
+      notes TEXT,
+      final_decision TEXT NOT NULL CHECK (final_decision IN ('مقبول', 'مرفوض', 'في انتظار فحص المورد', 'مقبول بنسبة')),
+      accepted_percentage REAL CHECK (accepted_percentage IS NULL OR (accepted_percentage >= 0 AND accepted_percentage <= 100)),
+      created_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS plastic_receipt_reasons (
+      receipt_id INTEGER NOT NULL REFERENCES plastic_receipts(id) ON DELETE CASCADE,
+      reason_id INTEGER NOT NULL REFERENCES plastic_rejection_reasons(id),
+      PRIMARY KEY (receipt_id, reason_id)
+    );
+
     -- Audit logs table
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,11 +352,372 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_pallets_line ON pallets(line_id);
     CREATE INDEX IF NOT EXISTS idx_pallets_decision ON pallets(pallet_decision);
     CREATE INDEX IF NOT EXISTS idx_aql_range ON aql_sampling_plans(batch_min, batch_max);
+    CREATE INDEX IF NOT EXISTS idx_scrap_reports_date ON scrap_reports(report_date, id);
+    CREATE INDEX IF NOT EXISTS idx_carton_receipts_date ON carton_receipts(received_date, id);
+    CREATE INDEX IF NOT EXISTS idx_carton_receipts_supplier ON carton_receipts(supplier, received_date);
   `);
 
+  runMigrations(db);
+  const plasticReceiptColumns = db.prepare('PRAGMA table_info(plastic_receipts)').all().map(column => column.name);
+  if (!plasticReceiptColumns.includes('product_name')) {
+    db.exec('ALTER TABLE plastic_receipts ADD COLUMN product_name TEXT');
+  }
+  if (!plasticReceiptColumns.includes('quantity')) {
+    db.exec('ALTER TABLE plastic_receipts ADD COLUMN quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0)');
+  }
+  const defaultPlasticRejectionReasons = [
+    'Material & Raw Color',
+    'Wrong Item',
+    'Flash / Burrs',
+    'Short Shot / Unfilled',
+    'Sink Marks',
+    'Weld Lines / Flow Marks',
+    'Color Mismatch / Discoloration',
+    'Scratches / Dirty / Stains',
+    'Warpage/Deformation',
+    'Silver Marks / Bubbles',
+    'Ejector Marks / Cracks',
+    'Assembly / Fitting Trial',
+    'Weight & Wall Thickness',
+    'Critical Dimensions (L, W, H/ Pin diameters)'
+  ];
+  const addPlasticRejectionReason = db.prepare(`
+    INSERT INTO plastic_rejection_reasons (name) VALUES (?)
+    ON CONFLICT(name) DO NOTHING
+  `);
+  for (const reason of defaultPlasticRejectionReasons) addPlasticRejectionReason.run(reason);
+  db.exec(`
+    INSERT OR IGNORE INTO plastic_item_names (name)
+    SELECT DISTINCT TRIM(product_name)
+    FROM plastic_receipts
+    WHERE product_name IS NOT NULL AND TRIM(product_name) <> '';
+  `);
+  const cartonReceiptColumns = db.prepare('PRAGMA table_info(carton_receipts)').all().map(column => column.name);
+  if (!cartonReceiptColumns.includes('material_type')) {
+    db.exec("ALTER TABLE carton_receipts ADD COLUMN material_type TEXT NOT NULL DEFAULT 'carton' CHECK (material_type IN ('carton', 'plastic'))");
+  }
+  db.exec(`
+    DROP INDEX IF EXISTS idx_carton_receipts_delivery_note;
+    CREATE UNIQUE INDEX idx_carton_receipts_delivery_note
+      ON carton_receipts(material_type, supplier, received_date, delivery_note_number)
+      WHERE delivery_note_number IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_carton_receipts_material_date
+      ON carton_receipts(material_type, received_date, id);
+    CREATE INDEX IF NOT EXISTS idx_plastic_receipts_date ON plastic_receipts(received_date, id);
+    CREATE INDEX IF NOT EXISTS idx_plastic_receipts_supplier ON plastic_receipts(supplier, received_date);
+    CREATE INDEX IF NOT EXISTS idx_plastic_receipts_product ON plastic_receipts(product_id, received_date);
+  `);
+  const legacyPlasticReceipts = db.prepare(`
+    SELECT id, supplier, received_date, shipment_number, total_items, accepted_items,
+           rejected_items, notes
+    FROM carton_receipts
+    WHERE material_type = 'plastic'
+  `).all();
+  if (legacyPlasticReceipts.length) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const insertPlastic = db.prepare(`
+      INSERT INTO plastic_receipts (
+        supplier, received_date, production_line_name, product_name, product_id, part_name,
+        inspected_samples, rejected_samples, notes, final_decision, accepted_percentage
+      ) VALUES (?, ?, '', NULL, NULL, NULL, ?, ?, ?, ?, NULL)
+      `);
+      for (const receipt of legacyPlasticReceipts) {
+        insertPlastic.run(
+          receipt.supplier, receipt.received_date, receipt.total_items, receipt.rejected_items,
+          receipt.notes, receipt.rejected_items > 0 ? 'مرفوض' : 'مقبول'
+        );
+      }
+      db.prepare("DELETE FROM carton_receipts WHERE material_type = 'plastic'").run();
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  db.exec(`
+    INSERT OR IGNORE INTO carton_suppliers (name)
+    SELECT DISTINCT TRIM(supplier) FROM carton_receipts WHERE TRIM(supplier) <> '';
+    INSERT OR IGNORE INTO plastic_suppliers (name)
+    SELECT DISTINCT TRIM(supplier) FROM plastic_receipts WHERE TRIM(supplier) <> '';
+  `);
   seedInitialData(db);
 
   return db;
+}
+
+function runMigrations(db) {
+  // 1. Safe ALTER TABLE columns
+  const alterColumns = [
+    { table: 'production_lines', column: 'department', type: "TEXT DEFAULT 'home'" },
+    { table: 'production_lines', column: 'is_archived', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'products', column: 'department', type: "TEXT DEFAULT 'home'" },
+    { table: 'pallets', column: 'department', type: "TEXT DEFAULT 'home'" },
+    { table: 'rejection_reasons', column: 'department', type: "TEXT DEFAULT 'home'" },
+    { table: 'scrap_reports', column: 'report_type', type: "TEXT NOT NULL DEFAULT 'hourly'" },
+    { table: 'scrap_reports', column: 'items_json', type: "TEXT NOT NULL DEFAULT '[]'" }
+  ];
+
+  for (const { table, column, type } of alterColumns) {
+    try {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+      if (!cols.includes(column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
+      }
+    } catch (e) {
+      console.warn(`Migration notice for ${table}.${column}:`, e.message);
+    }
+  }
+
+  // 2. Create new tables if not exist
+  db.exec(`
+    -- Hourly Sample Slots
+    CREATE TABLE IF NOT EXISTS hourly_sample_slots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slot_name TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      display_order INTEGER DEFAULT 1,
+      department TEXT DEFAULT 'all',
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Hourly Samples
+    CREATE TABLE IF NOT EXISTS hourly_samples (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      slot_id INTEGER NOT NULL REFERENCES hourly_sample_slots(id),
+      line_id INTEGER NOT NULL REFERENCES production_lines(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      shift_id INTEGER NOT NULL REFERENCES shifts(id),
+      inspector_id INTEGER REFERENCES quality_inspectors(id),
+      sample_count INTEGER NOT NULL CHECK (sample_count >= 0),
+      defect_count INTEGER NOT NULL DEFAULT 0 CHECK (defect_count >= 0),
+      decision TEXT DEFAULT 'مقبول',
+      notes TEXT,
+      department TEXT DEFAULT 'home',
+      created_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Hourly Sample Defects
+    CREATE TABLE IF NOT EXISTS hourly_sample_defects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hourly_sample_id INTEGER NOT NULL REFERENCES hourly_samples(id) ON DELETE CASCADE,
+      reason_id INTEGER NOT NULL REFERENCES rejection_reasons(id),
+      count INTEGER NOT NULL DEFAULT 1,
+      notes TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS inspection_stations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      default_inspector_id INTEGER REFERENCES quality_inspectors(id),
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS line_sample_slots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      display_order INTEGER NOT NULL DEFAULT 1,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS line_sample_pulls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      slot_id INTEGER REFERENCES line_sample_slots(id),
+      line_id INTEGER NOT NULL REFERENCES production_lines(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      station_id INTEGER NOT NULL REFERENCES inspection_stations(id),
+      inspector_id INTEGER NOT NULL REFERENCES quality_inspectors(id),
+      additional_inspector_id INTEGER REFERENCES quality_inspectors(id),
+      sample_count INTEGER NOT NULL CHECK (sample_count > 0),
+      additional_sample_count INTEGER NOT NULL DEFAULT 0 CHECK (additional_sample_count >= 0),
+      status TEXT NOT NULL DEFAULT 'pending',
+      defect_count INTEGER NOT NULL DEFAULT 0,
+      pallet_rejected INTEGER CHECK (pallet_rejected IN (0, 1)),
+      notes TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS line_sample_period_statuses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      slot_id INTEGER NOT NULL REFERENCES line_sample_slots(id),
+      line_id INTEGER NOT NULL REFERENCES production_lines(id),
+      is_stopped INTEGER NOT NULL DEFAULT 0 CHECK (is_stopped IN (0, 1)),
+      no_sample_reason TEXT NOT NULL DEFAULT '',
+      updated_by INTEGER REFERENCES users(id),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (date, slot_id, line_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS line_sample_pull_defects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pull_id INTEGER NOT NULL REFERENCES line_sample_pulls(id) ON DELETE CASCADE,
+      reason_id INTEGER NOT NULL REFERENCES rejection_reasons(id),
+      count INTEGER NOT NULL CHECK (count > 0),
+      notes TEXT
+    );
+
+    -- Daily Line Production (End of day actual production entry)
+    CREATE TABLE IF NOT EXISTS daily_line_production (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      line_id INTEGER NOT NULL REFERENCES production_lines(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      shift_id INTEGER REFERENCES shifts(id),
+      total_produced_qty INTEGER NOT NULL CHECK (total_produced_qty >= 0),
+      notes TEXT,
+      department TEXT DEFAULT 'home',
+      entered_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (date, line_id, product_id, shift_id)
+    );
+
+    -- Line-Product Many-to-Many associations
+    CREATE TABLE IF NOT EXISTS line_products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      line_id INTEGER NOT NULL REFERENCES production_lines(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      is_active INTEGER DEFAULT 1,
+      notes TEXT,
+      UNIQUE (line_id, product_id)
+    );
+
+    -- Indexes for performance
+    CREATE INDEX IF NOT EXISTS idx_hourly_samples_date ON hourly_samples(date);
+    CREATE INDEX IF NOT EXISTS idx_hourly_samples_line ON hourly_samples(line_id);
+    CREATE INDEX IF NOT EXISTS idx_hourly_samples_slot ON hourly_samples(slot_id);
+    CREATE INDEX IF NOT EXISTS idx_line_sample_pulls_date ON line_sample_pulls(date);
+    CREATE INDEX IF NOT EXISTS idx_line_sample_pulls_line ON line_sample_pulls(line_id);
+    CREATE INDEX IF NOT EXISTS idx_daily_prod_date ON daily_line_production(date);
+  `);
+
+  const pullColumns = db.prepare('PRAGMA table_info(line_sample_pulls)').all().map(column => column.name);
+  if (!pullColumns.includes('slot_id')) {
+    db.exec('ALTER TABLE line_sample_pulls ADD COLUMN slot_id INTEGER REFERENCES line_sample_slots(id)');
+  }
+  if (!pullColumns.includes('additional_inspector_id')) {
+    db.exec('ALTER TABLE line_sample_pulls ADD COLUMN additional_inspector_id INTEGER REFERENCES quality_inspectors(id)');
+  }
+  if (!pullColumns.includes('additional_sample_count')) {
+    db.exec('ALTER TABLE line_sample_pulls ADD COLUMN additional_sample_count INTEGER NOT NULL DEFAULT 0 CHECK (additional_sample_count >= 0)');
+  }
+  if (!pullColumns.includes('pallet_rejected')) {
+    db.exec('ALTER TABLE line_sample_pulls ADD COLUMN pallet_rejected INTEGER CHECK (pallet_rejected IN (0, 1))');
+  }
+  const stationColumns = db.prepare('PRAGMA table_info(inspection_stations)').all().map(column => column.name);
+  if (!stationColumns.includes('default_inspector_id')) {
+    db.exec('ALTER TABLE inspection_stations ADD COLUMN default_inspector_id INTEGER REFERENCES quality_inspectors(id)');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_line_sample_pulls_slot ON line_sample_pulls(slot_id)');
+
+  // Ensure all existing null department fields are set to 'home'
+  try {
+    db.exec("UPDATE production_lines SET department = 'home' WHERE department IS NULL;");
+    db.exec("UPDATE products SET department = 'home' WHERE department IS NULL;");
+    db.exec("UPDATE pallets SET department = 'home' WHERE department IS NULL;");
+    db.exec("UPDATE rejection_reasons SET department = 'home' WHERE department IS NULL;");
+  } catch (e) {}
+
+  const stationsCount = db.prepare('SELECT COUNT(*) as count FROM inspection_stations').get().count;
+  if (stationsCount === 0) {
+    const insertStation = db.prepare('INSERT INTO inspection_stations (name) VALUES (?)');
+    ['محطة 1', 'محطة 2', 'محطة 3'].forEach(name => insertStation.run(name));
+  }
+
+  const sampleSlotsCount = db.prepare('SELECT COUNT(*) as count FROM line_sample_slots').get().count;
+  if (sampleSlotsCount === 0) {
+    const insertSlot = db.prepare('INSERT INTO line_sample_slots (start_time, end_time, display_order) VALUES (?, ?, ?)');
+    for (let hour = 8; hour < 16; hour += 1) {
+      const start = `${String(hour).padStart(2, '0')}:00`;
+      const end = `${String(hour + 1).padStart(2, '0')}:00`;
+      insertSlot.run(start, end, hour - 7);
+    }
+  }
+  db.exec(`
+    UPDATE line_sample_pulls
+    SET slot_id = (
+      SELECT slot.id
+      FROM line_sample_slots slot
+      WHERE slot.start_time = line_sample_pulls.start_time
+        AND slot.end_time = line_sample_pulls.end_time
+      ORDER BY slot.id ASC
+      LIMIT 1
+    )
+    WHERE slot_id IS NULL
+  `);
+
+  // 3. Seed Hourly Slots if empty
+  const slotsCount = db.prepare('SELECT COUNT(*) as count FROM hourly_sample_slots').get().count;
+  if (slotsCount === 0) {
+    const insertSlot = db.prepare(`
+      INSERT INTO hourly_sample_slots (slot_name, start_time, end_time, display_order, department)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const defaultSlots = [
+      { name: 'السحبة 1 (08:00 - 09:00)', start: '08:00', end: '09:00', order: 1 },
+      { name: 'السحبة 2 (09:00 - 10:00)', start: '09:00', end: '10:00', order: 2 },
+      { name: 'السحبة 3 (10:00 - 11:00)', start: '10:00', end: '11:00', order: 3 },
+      { name: 'السحبة 4 (11:00 - 12:00)', start: '11:00', end: '12:00', order: 4 },
+      { name: 'السحبة 5 (12:00 - 13:00)', start: '12:00', end: '13:00', order: 5 },
+      { name: 'السحبة 6 (13:00 - 14:00)', start: '13:00', end: '14:00', order: 6 },
+      { name: 'السحبة 7 (14:00 - 15:00)', start: '14:00', end: '15:00', order: 7 },
+      { name: 'السحبة 8 (15:00 - 16:00)', start: '15:00', end: '16:00', order: 8 }
+    ];
+    for (const s of defaultSlots) {
+      insertSlot.run(s.name, s.start, s.end, s.order, 'all');
+    }
+  }
+
+  // 4. Seed Seria department lines and products if none exist
+  const seriaLinesCount = db.prepare("SELECT COUNT(*) as count FROM production_lines WHERE department = 'seria'").get().count;
+  if (seriaLinesCount === 0) {
+    const maxLine = db.prepare('SELECT COALESCE(MAX(line_number), 0) as m FROM production_lines').get().m;
+    const insertLine = db.prepare(`
+      INSERT INTO production_lines (line_number, name, supervisor_name, status, notes, department)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const l1 = insertLine.run(maxLine + 1, 'خط تجميع واختبار حبال وسريا الليد الديكورية', 'م. إبراهيم رضوان', 'نشط', 'سريا ليد ديكورية - فحص إضاءة وعزل كهربائي', 'seria');
+    const l2 = insertLine.run(maxLine + 2, 'خط سريا المفاتيح واللوحات وتجميع الشاسيه', 'م. ماجد عبد السلام', 'نشط', 'تجميع مفاتيح ولوحات سريا', 'seria');
+    const l3 = insertLine.run(maxLine + 3, 'خط تصنيع واختبار ضفائر وسريا التغذية الكهربائية', 'م. وليد الشناوي', 'نشط', 'كابلات وضفائر سريا معتمدة', 'seria');
+
+    const seriaProdCount = db.prepare("SELECT COUNT(*) as count FROM products WHERE department = 'seria'").get().count;
+    if (seriaProdCount === 0) {
+      const insertProd = db.prepare(`
+        INSERT INTO products (code, name, specifications, weight, unit, default_line_id, extra_info, department)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertProd.run('SR-LD10M', 'سريا ليد ديكور المغربي 10 متر متعدد الألوان IP65', 'مقاوم للماء، محول معتمد، 100 نقطة ليد، عزل سيليكون', '0.6 كجم', 'لفة/قطعة', l1.lastInsertRowid, 'مطابق للمواصفات القياسية المصرية', 'seria');
+      insertProd.run('SR-LD05W', 'سريا ليد شريط إضاءة دافئة 5 متر عالي الكثافة', 'إضاءة دافئة 3000K، لصق 3M أصلي، موصل سريع', '0.4 كجم', 'لفة/قطعة', l1.lastInsertRowid, 'شريط ليد مرن عالي التحمل', 'seria');
+      insertProd.run('SR-WR300', 'سريا ضفيرة أسلاك ومفاتيح توزيع معتمدة 16A', 'نحاس نقي 100%، كابل ضد الحريق، عوازل حرارية', '0.9 كجم', 'طقم', l3.lastInsertRowid, 'تغذية كهربائية معتمدة', 'seria');
+      insertProd.run('SR-SW4W', 'مجموعة سريا مفاتيح ولمبات بيان صناعية', 'مفاتيح روكر، لمبات ليد نيون، حماية ماس كهربائي', '0.5 كجم', 'طقم', l2.lastInsertRowid, 'لوحة مفاتيح سريا متعددة', 'seria');
+    }
+  }
+
+  const seriaReasonsCount = db.prepare("SELECT COUNT(*) as count FROM rejection_reasons WHERE department = 'seria'").get().count;
+  if (seriaReasonsCount === 0) {
+    const insertReason = db.prepare(`
+      INSERT INTO rejection_reasons (code, name, category, department)
+      VALUES (?, ?, ?, ?)
+    `);
+    insertReason.run('DEF-SR01', 'انقطاع أو تلف في إضاءة ليد السريا', 'إضاءة وكهرباء', 'seria');
+    insertReason.run('DEF-SR02', 'عيب في لحامات أو عزل أسلاك السريا', 'تجميع وتوصيل', 'seria');
+    insertReason.run('DEF-SR03', 'خلل في وحدة التغذية والمحول Driver', 'إلكترونيات وتغذية', 'seria');
+    insertReason.run('DEF-SR04', 'تلف أو كسر في غلاف السيليكون الخارجي', 'عزل وحماية', 'seria');
+  }
 }
 
 function seedInitialData(db) {
