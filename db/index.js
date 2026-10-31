@@ -1,8 +1,927 @@
 const { getDatabase } = require('./schema');
 
+function normalizeCartonReceipt(data) {
+  const supplier = String(data.supplier ?? '').trim();
+  const receivedDate = String(data.received_date ?? '').trim();
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(receivedDate)
+    ? new Date(`${receivedDate}T00:00:00.000Z`)
+    : null;
+  if (!supplier) throw new Error('اسم المورد مطلوب');
+  if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== receivedDate) {
+    throw new Error('تاريخ الاستلام غير صالح');
+  }
+
+  const integerField = (field, label) => {
+    const value = data[field];
+    const text = typeof value === 'string' ? value.trim() : null;
+    const number = typeof value === 'number'
+      ? value
+      : text && /^\d+$/.test(text)
+        ? Number(text)
+        : NaN;
+    if (!Number.isSafeInteger(number) || number < 0) {
+      throw new Error(`${label} يجب أن يكون رقمًا صحيحًا غير سالب`);
+    }
+    return number;
+  };
+
+  const receipt = {
+    supplier,
+    received_date: receivedDate,
+    shipment_number: String(data.shipment_number ?? '').trim() || null,
+    total_quantity: integerField('total_quantity', 'إجمالي الكمية'),
+    delivery_note_number: String(data.delivery_note_number ?? '').trim() || null,
+    total_items: integerField('total_items', 'إجمالي الأصناف'),
+    accepted_items: integerField('accepted_items', 'الأصناف المقبولة'),
+    rejected_items: integerField('rejected_items', 'الأصناف المرفوضة'),
+    rejected_item_code: String(data.rejected_item_code ?? '').trim() || null,
+    notes: String(data.notes ?? '').trim() || null
+  };
+
+  if (receipt.accepted_items + receipt.rejected_items !== receipt.total_items) {
+    throw new Error('إجمالي الأصناف يجب أن يساوي مجموع الأصناف المقبولة والمرفوضة');
+  }
+  return receipt;
+}
+
+function normalizePlasticReceipt(data) {
+  const supplier = String(data.supplier ?? '').trim();
+  const receivedDate = String(data.received_date ?? '').trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(receivedDate) ? new Date(`${receivedDate}T00:00:00.000Z`) : null;
+  const productName = String(data.product_name ?? '').trim();
+  const partName = String(data.part_name ?? '').trim() || null;
+  const quantity = data.quantity === '' || data.quantity === null || data.quantity === undefined
+    ? NaN
+    : Number(data.quantity);
+  const notes = String(data.notes ?? '').trim() || null;
+  const finalDecision = String(data.final_decision ?? '').trim();
+  const inspectedSamples = data.inspected_samples === '' || data.inspected_samples === null || data.inspected_samples === undefined
+    ? NaN
+    : Number(data.inspected_samples);
+  const rejectedSamples = data.rejected_samples === '' || data.rejected_samples === null || data.rejected_samples === undefined
+    ? NaN
+    : Number(data.rejected_samples);
+  const allowedDecisions = ['مقبول', 'مرفوض', 'في انتظار فحص المورد', 'مقبول بنسبة'];
+
+  if (!supplier || supplier.length > 150) throw new Error('اسم المورد مطلوب وبحد أقصى 150 حرفًا');
+  if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== receivedDate) {
+    throw new Error('تاريخ الاستلام غير صالح');
+  }
+  if (!productName || productName.length > 150) throw new Error('اختيار الصنف مطلوب');
+  if (partName && partName.length > 150) throw new Error('اسم الجزء يجب ألا يتجاوز 150 حرفًا');
+  if (notes && notes.length > 1000) throw new Error('الملاحظات يجب ألا تتجاوز 1000 حرف');
+  if (!Number.isSafeInteger(quantity) || quantity < 0) throw new Error('الكمية يجب أن تكون رقمًا صحيحًا غير سالب');
+  if (!Number.isSafeInteger(inspectedSamples) || inspectedSamples < 0) throw new Error('عدد العينات المفحوصة يجب أن يكون عددًا صحيحًا غير سالب');
+  if (!Number.isSafeInteger(rejectedSamples) || rejectedSamples < 0 || rejectedSamples > inspectedSamples) {
+    throw new Error('عدد العينات المرفوضة يجب أن يكون بين صفر وعدد العينات المفحوصة');
+  }
+  if (!allowedDecisions.includes(finalDecision)) throw new Error('القرار النهائي غير صالح');
+
+  let acceptedPercentage = null;
+  if (finalDecision === 'مقبول بنسبة') {
+    acceptedPercentage = data.accepted_percentage === '' || data.accepted_percentage === null || data.accepted_percentage === undefined
+      ? NaN
+      : Number(data.accepted_percentage);
+    if (!Number.isFinite(acceptedPercentage) || acceptedPercentage < 0 || acceptedPercentage > 100) {
+      throw new Error('نسبة القبول يجب أن تكون من 0 إلى 100');
+    }
+  }
+
+  const rawReasonIds = Array.isArray(data.reason_ids) ? data.reason_ids : [];
+  const reasonIds = [...new Set(rawReasonIds.map(Number))];
+  if (reasonIds.some(id => !Number.isSafeInteger(id) || id < 1)) throw new Error('أحد أسباب الرفض المحددة غير صالح');
+  if (rejectedSamples > 0 && reasonIds.length === 0) throw new Error('اختر سبب رفض واحدًا على الأقل');
+
+  return {
+    supplier,
+    received_date: receivedDate,
+    product_name: productName,
+    part_name: partName,
+    quantity,
+    inspected_samples: inspectedSamples,
+    rejected_samples: rejectedSamples,
+    reason_ids: reasonIds,
+    notes,
+    final_decision: finalDecision,
+    accepted_percentage: acceptedPercentage
+  };
+}
+
 class QualityDB {
   constructor() {
     this.db = getDatabase();
+  }
+
+  getCartonReceipts(filters = {}) {
+    const { where, params } = this.getCartonReceiptFilter(filters);
+    const orderBy = {
+      date_desc: 'received_date DESC, id DESC',
+      date_asc: 'received_date ASC, id ASC',
+      supplier_asc: 'supplier COLLATE NOCASE ASC, received_date DESC, id DESC',
+      supplier_desc: 'supplier COLLATE NOCASE DESC, received_date DESC, id DESC'
+    }[filters.sort] || 'received_date DESC, id DESC';
+    return this.db.prepare(`
+      SELECT * FROM carton_receipts
+      ${where}
+      ORDER BY ${orderBy}
+      LIMIT 1000
+    `).all(...params);
+  }
+
+  getCartonReceiptSummary(filters = {}) {
+    const { where, params } = this.getCartonReceiptFilter(filters);
+    return this.db.prepare(`
+      SELECT COUNT(*) AS records_count,
+             COALESCE(SUM(total_quantity), 0) AS total_quantity,
+             COALESCE(SUM(accepted_items), 0) AS accepted_items,
+             COALESCE(SUM(rejected_items), 0) AS rejected_items,
+             COALESCE(SUM(shipment_count), 0) AS shipments_count
+      FROM carton_receipts
+      ${where}
+    `).get(...params);
+  }
+
+  getCartonReceiptSupplierAnalysis(filters = {}) {
+    const conditions = ["material_type = 'carton'"];
+    const params = [];
+    if (filters.from_date) {
+      conditions.push('received_date >= ?');
+      params.push(filters.from_date);
+    }
+    if (filters.to_date) {
+      conditions.push('received_date <= ?');
+      params.push(filters.to_date);
+    }
+    if (filters.supplier) {
+      conditions.push('supplier = ?');
+      params.push(String(filters.supplier).trim());
+    }
+    const suppliers = this.db.prepare(`
+      SELECT supplier, COUNT(*) AS records_count,
+             COALESCE(SUM(shipment_count), 0) AS shipments_count,
+             COALESCE(SUM(total_quantity), 0) AS total_quantity,
+             COALESCE(SUM(total_items), 0) AS total_items,
+             COALESCE(SUM(accepted_items), 0) AS accepted_items,
+             COALESCE(SUM(rejected_items), 0) AS rejected_items
+      FROM carton_receipts
+      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      GROUP BY supplier
+      ORDER BY total_quantity DESC, supplier COLLATE NOCASE
+    `).all(...params);
+    const rejectionConditions = [...conditions, 'rejected_items > 0'];
+    const rejectionNotes = this.db.prepare(`
+      SELECT supplier, COALESCE(NULLIF(TRIM(notes), ''), '') AS note,
+             COUNT(*) AS records_count, COALESCE(SUM(rejected_items), 0) AS rejected_items
+      FROM carton_receipts
+      WHERE ${rejectionConditions.join(' AND ')}
+      GROUP BY supplier, COALESCE(NULLIF(TRIM(notes), ''), '')
+      ORDER BY supplier COLLATE NOCASE, rejected_items DESC, note COLLATE NOCASE
+    `).all(...params);
+    const notesBySupplier = new Map();
+    for (const rejection of rejectionNotes) {
+      if (!notesBySupplier.has(rejection.supplier)) notesBySupplier.set(rejection.supplier, []);
+      notesBySupplier.get(rejection.supplier).push({
+        note: rejection.note,
+        records_count: rejection.records_count,
+        rejected_items: rejection.rejected_items
+      });
+    }
+    return suppliers.map(supplier => ({
+      ...supplier,
+      rejection_notes: notesBySupplier.get(supplier.supplier) || []
+    }));
+  }
+
+  getCartonSuppliers() {
+    return this.db.prepare(`
+      SELECT id, name FROM carton_suppliers
+      WHERE is_active = 1
+      ORDER BY name COLLATE NOCASE
+    `).all();
+  }
+
+  createCartonSupplier(name, userId, userName) {
+    const supplierName = String(name ?? '').trim();
+    if (!supplierName) throw new Error('اسم الشركة مطلوب');
+    if (supplierName.length > 150) throw new Error('اسم الشركة يجب ألا يتجاوز 150 حرفًا');
+    const existing = this.db.prepare('SELECT id, is_active FROM carton_suppliers WHERE name = ?').get(supplierName);
+    if (existing?.is_active) throw new Error('الشركة مسجلة بالفعل');
+    if (existing) {
+      this.db.prepare('UPDATE carton_suppliers SET is_active = 1 WHERE id = ?').run(existing.id);
+      this.logAudit(userId, userName, 'RESTORE', 'carton_suppliers', existing.id, `إعادة تفعيل شركة: ${supplierName}`);
+      return this.db.prepare('SELECT id, name FROM carton_suppliers WHERE id = ?').get(existing.id);
+    }
+    const result = this.db.prepare('INSERT INTO carton_suppliers (name) VALUES (?)').run(supplierName);
+    this.logAudit(userId, userName, 'CREATE', 'carton_suppliers', result.lastInsertRowid, `إضافة شركة: ${supplierName}`);
+    return this.db.prepare('SELECT id, name FROM carton_suppliers WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  deactivateCartonSupplier(id, userId, userName) {
+    const supplierId = Number(id);
+    if (!Number.isSafeInteger(supplierId) || supplierId < 1) throw new Error('رقم الشركة غير صالح');
+    const supplier = this.db.prepare('SELECT id, name FROM carton_suppliers WHERE id = ? AND is_active = 1').get(supplierId);
+    if (!supplier) throw new Error('الشركة غير موجودة أو تم إيقافها بالفعل');
+    this.db.prepare('UPDATE carton_suppliers SET is_active = 0 WHERE id = ?').run(supplierId);
+    this.logAudit(userId, userName, 'DELETE', 'carton_suppliers', supplierId, `إيقاف شركة من القائمة: ${supplier.name}`);
+    return supplier;
+  }
+
+  getCartonReceiptFilter(filters) {
+    const conditions = ["material_type = 'carton'"];
+    const params = [];
+    if (filters.from_date) {
+      conditions.push('received_date >= ?');
+      params.push(filters.from_date);
+    }
+    if (filters.to_date) {
+      conditions.push('received_date <= ?');
+      params.push(filters.to_date);
+    }
+    if (filters.supplier) {
+      conditions.push('supplier = ?');
+      params.push(String(filters.supplier).trim());
+    }
+    if (filters.search) {
+      conditions.push('(supplier LIKE ? OR shipment_number LIKE ? OR delivery_note_number LIKE ? OR rejected_item_code LIKE ?)');
+      const search = `%${String(filters.search).trim()}%`;
+      params.push(search, search, search, search);
+    }
+    return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
+  }
+
+  createCartonReceipt(data, userId, userName) {
+    const materialType = 'carton';
+    const receipt = normalizeCartonReceipt(data);
+    if (receipt.delivery_note_number && this.db.prepare(`
+      SELECT 1 FROM carton_receipts
+      WHERE material_type = ? AND supplier = ? AND received_date = ? AND delivery_note_number = ?
+      LIMIT 1
+    `).get(materialType, receipt.supplier, receipt.received_date, receipt.delivery_note_number)) {
+      throw new Error('رقم إذن التسليم مسجل بالفعل لهذا المورد في نفس التاريخ');
+    }
+    this.db.prepare('INSERT OR IGNORE INTO carton_suppliers (name) VALUES (?)').run(receipt.supplier);
+    const insert = this.db.prepare(`
+      INSERT INTO carton_receipts (
+        supplier, received_date, shipment_number, total_quantity, delivery_note_number,
+        total_items, accepted_items, rejected_items, rejected_item_code, notes, material_type, shipment_count, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const isFirstShipment = !receipt.shipment_number || !this.db.prepare(`
+      SELECT 1 FROM carton_receipts
+      WHERE material_type = ? AND supplier = ? AND received_date = ? AND shipment_number = ?
+      LIMIT 1
+    `).get(materialType, receipt.supplier, receipt.received_date, receipt.shipment_number);
+    try {
+      const result = insert.run(
+        receipt.supplier, receipt.received_date, receipt.shipment_number, receipt.total_quantity,
+        receipt.delivery_note_number, receipt.total_items, receipt.accepted_items, receipt.rejected_items,
+        receipt.rejected_item_code, receipt.notes, materialType, isFirstShipment ? 1 : 0, userId || null
+      );
+      this.logAudit(userId, userName, 'CREATE', `${materialType}_receipts`, result.lastInsertRowid, `إضافة إذن استلام ${materialType === 'plastic' ? 'بلاستيك' : 'كراتين'}: ${receipt.delivery_note_number || 'بدون رقم إذن'}`);
+      return this.db.prepare('SELECT * FROM carton_receipts WHERE id = ?').get(result.lastInsertRowid);
+    } catch (error) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        throw new Error('رقم إذن التسليم مسجل بالفعل لهذا المورد في نفس التاريخ');
+      }
+      throw error;
+    }
+  }
+
+  updateCartonReceipt(id, data, userId, userName) {
+    const materialType = 'carton';
+    const receiptId = Number(id);
+    if (!Number.isSafeInteger(receiptId) || receiptId < 1) throw new Error('رقم إذن الاستلام غير صالح');
+    const existing = this.db.prepare('SELECT * FROM carton_receipts WHERE id = ? AND material_type = ?').get(receiptId, materialType);
+    if (!existing) throw new Error('إذن الاستلام غير موجود');
+    const receipt = normalizeCartonReceipt(data);
+    if (receipt.delivery_note_number && this.db.prepare(`
+      SELECT 1 FROM carton_receipts
+      WHERE id <> ? AND material_type = ? AND supplier = ? AND received_date = ? AND delivery_note_number = ?
+      LIMIT 1
+    `).get(receiptId, materialType, receipt.supplier, receipt.received_date, receipt.delivery_note_number)) {
+      throw new Error('رقم إذن التسليم مسجل بالفعل لهذا المورد في نفس التاريخ');
+    }
+    this.db.prepare('INSERT OR IGNORE INTO carton_suppliers (name) VALUES (?)').run(receipt.supplier);
+    const groups = [
+      [materialType, existing.supplier, existing.received_date],
+      [materialType, receipt.supplier, receipt.received_date]
+    ];
+    try {
+      this.db.prepare(`
+        UPDATE carton_receipts SET
+          supplier = ?, received_date = ?, shipment_number = ?, total_quantity = ?,
+          delivery_note_number = ?, total_items = ?, accepted_items = ?, rejected_items = ?,
+          rejected_item_code = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND material_type = ?
+      `).run(
+        receipt.supplier, receipt.received_date, receipt.shipment_number, receipt.total_quantity,
+        receipt.delivery_note_number, receipt.total_items, receipt.accepted_items, receipt.rejected_items,
+        receipt.rejected_item_code, receipt.notes, receiptId, materialType
+      );
+    } catch (error) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        throw new Error('رقم إذن التسليم مسجل بالفعل لهذا المورد في نفس التاريخ');
+      }
+      throw error;
+    }
+    this.refreshCartonShipmentCounts(groups);
+    this.logAudit(userId, userName, 'UPDATE', `${materialType}_receipts`, receiptId, `تعديل إذن استلام ${materialType === 'plastic' ? 'بلاستيك' : 'كراتين'}: ${receipt.delivery_note_number || 'بدون رقم إذن'}`);
+    return this.db.prepare('SELECT * FROM carton_receipts WHERE id = ? AND material_type = ?').get(receiptId, materialType);
+  }
+
+  deleteCartonReceipt(id, userId, userName) {
+    const materialType = 'carton';
+    const receiptId = Number(id);
+    if (!Number.isSafeInteger(receiptId) || receiptId < 1) throw new Error('رقم إذن الاستلام غير صالح');
+    const receipt = this.db.prepare('SELECT * FROM carton_receipts WHERE id = ? AND material_type = ?').get(receiptId, materialType);
+    if (!receipt) throw new Error('إذن الاستلام غير موجود');
+    this.db.prepare('DELETE FROM carton_receipts WHERE id = ? AND material_type = ?').run(receiptId, materialType);
+    this.refreshCartonShipmentCounts([[materialType, receipt.supplier, receipt.received_date]]);
+    this.logAudit(userId, userName, 'DELETE', `${materialType}_receipts`, receiptId, `حذف إذن استلام ${materialType === 'plastic' ? 'بلاستيك' : 'كراتين'}: ${receipt.delivery_note_number || 'بدون رقم إذن'}`);
+    return receipt;
+  }
+
+  deleteAllCartonReceipts(userId, userName) {
+    const materialType = 'carton';
+    const count = this.db.prepare('SELECT COUNT(*) AS count FROM carton_receipts WHERE material_type = ?').get(materialType).count;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM carton_receipts WHERE material_type = ?').run(materialType);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    this.logAudit(userId, userName, 'DELETE_ALL', `${materialType}_receipts`, 0, `حذف جميع أذون استلام ${materialType === 'plastic' ? 'البلاستيك' : 'الكراتين'} (${count} إذن)`, { deleted_count: count });
+    return { deleted_count: count };
+  }
+
+  refreshCartonShipmentCounts(groups) {
+    const update = this.db.prepare(`
+      UPDATE carton_receipts
+      SET shipment_count = CASE
+        WHEN shipment_number IS NULL OR shipment_number = '' THEN 1
+        WHEN id = (
+          SELECT MIN(first_receipt.id)
+          FROM carton_receipts AS first_receipt
+          WHERE first_receipt.supplier = carton_receipts.supplier
+            AND first_receipt.received_date = carton_receipts.received_date
+            AND first_receipt.shipment_number = carton_receipts.shipment_number
+            AND first_receipt.material_type = carton_receipts.material_type
+        ) THEN 1
+        ELSE 0
+      END
+      WHERE material_type = ? AND supplier = ? AND received_date = ?
+    `);
+    const uniqueGroups = new Map(groups.map(([materialType, supplier, date]) => [
+      `${materialType}\u0000${supplier}\u0000${date}`,
+      [materialType, supplier, date]
+    ]));
+    for (const [materialType, supplier, receivedDate] of uniqueGroups.values()) {
+      update.run(materialType, supplier, receivedDate);
+    }
+  }
+
+  importCartonReceipts(rows, userId, userName) {
+    const materialType = 'carton';
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error('لم يتم العثور على سجلات صالحة للاستيراد');
+    if (rows.length > 2000) throw new Error('الحد الأقصى للاستيراد في المرة الواحدة هو 2000 سجل');
+    const receipts = rows.map((row, index) => {
+      try {
+        return normalizeCartonReceipt(row);
+      } catch (error) {
+        throw new Error(`الصف ${index + 1}: ${error.message}`);
+      }
+    });
+
+    const permitKeys = new Set();
+    receipts.forEach((receipt, index) => {
+      if (!receipt.delivery_note_number) return;
+      const key = `${materialType}\u0000${receipt.supplier}\u0000${receipt.received_date}\u0000${receipt.delivery_note_number}`;
+      if (permitKeys.has(key)) throw new Error(`رقم إذن التسليم مكرر داخل الملف في سجل الاستيراد ${index + 1}`);
+      permitKeys.add(key);
+    });
+
+    const insert = this.db.prepare(`
+      INSERT INTO carton_receipts (
+        supplier, received_date, shipment_number, total_quantity, delivery_note_number,
+        total_items, accepted_items, rejected_items, rejected_item_code, notes, material_type, shipment_count, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const existingPermits = this.db.prepare(`
+      SELECT 1 FROM carton_receipts
+      WHERE material_type = ? AND supplier = ? AND received_date = ? AND delivery_note_number = ?
+      LIMIT 1
+    `);
+    const existingShipments = new Set(this.db.prepare(`
+      SELECT DISTINCT supplier, received_date, shipment_number
+      FROM carton_receipts
+      WHERE material_type = ? AND shipment_number IS NOT NULL AND shipment_number <> ''
+    `).all(materialType).map(row => `${row.supplier}\u0000${row.received_date}\u0000${row.shipment_number}`));
+    const shipmentKeys = new Set(existingShipments);
+    let insertedCount = 0;
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      receipts.forEach((receipt, index) => {
+        if (receipt.delivery_note_number && existingPermits.get(
+          materialType, receipt.supplier, receipt.received_date, receipt.delivery_note_number
+        )) {
+          throw new Error(`إذن التسليم في سجل الاستيراد ${index + 1} مسجل بالفعل لهذا المورد في نفس التاريخ`);
+        }
+        const shipmentKey = receipt.shipment_number
+          ? `${receipt.supplier}\u0000${receipt.received_date}\u0000${receipt.shipment_number}`
+          : null;
+        const isFirstShipment = !shipmentKey || !shipmentKeys.has(shipmentKey);
+        if (shipmentKey) shipmentKeys.add(shipmentKey);
+        this.db.prepare('INSERT OR IGNORE INTO carton_suppliers (name) VALUES (?)').run(receipt.supplier);
+        insert.run(
+          receipt.supplier, receipt.received_date, receipt.shipment_number, receipt.total_quantity,
+          receipt.delivery_note_number, receipt.total_items, receipt.accepted_items, receipt.rejected_items,
+          receipt.rejected_item_code, receipt.notes, materialType, isFirstShipment ? 1 : 0, userId || null
+        );
+        insertedCount += 1;
+      });
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+
+    this.logAudit(
+      userId, userName, 'IMPORT', `${materialType}_receipts`, 0,
+      `استيراد ${insertedCount} إذن استلام ${materialType === 'plastic' ? 'بلاستيك' : 'كراتين'}`,
+      { imported_count: insertedCount, material_type: materialType }
+    );
+    return { imported_count: insertedCount };
+  }
+
+  getPlasticReceipts(filters = {}) {
+    const conditions = [];
+    const params = [];
+    if (filters.id !== undefined) {
+      conditions.push('r.id = ?');
+      params.push(Number(filters.id));
+    }
+    if (filters.from_date) {
+      conditions.push('r.received_date >= ?');
+      params.push(filters.from_date);
+    }
+    if (filters.to_date) {
+      conditions.push('r.received_date <= ?');
+      params.push(filters.to_date);
+    }
+    if (filters.supplier) {
+      conditions.push('r.supplier = ?');
+      params.push(String(filters.supplier).trim());
+    }
+    if (filters.search) {
+      const search = `%${String(filters.search).trim()}%`;
+      conditions.push('(r.supplier LIKE ? OR r.product_name LIKE ? OR r.part_name LIKE ?)');
+      params.push(search, search, search);
+    }
+    if (filters.final_decision) {
+      conditions.push('r.final_decision = ?');
+      params.push(String(filters.final_decision));
+    }
+    const orderBy = {
+      date_asc: 'r.received_date ASC, r.id ASC',
+      supplier_asc: 'r.supplier COLLATE NOCASE ASC, r.received_date DESC, r.id DESC',
+      supplier_desc: 'r.supplier COLLATE NOCASE DESC, r.received_date DESC, r.id DESC'
+    }[filters.sort] || 'r.received_date DESC, r.id DESC';
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const receipts = this.db.prepare(`
+      SELECT r.*
+      FROM plastic_receipts r
+      ${where}
+      ORDER BY ${orderBy}
+      LIMIT 1000
+    `).all(...params);
+    if (!receipts.length) return [];
+
+    const reasons = this.db.prepare(`
+      SELECT rr.receipt_id, reason.id, reason.name
+      FROM plastic_receipt_reasons rr
+      JOIN plastic_rejection_reasons reason ON reason.id = rr.reason_id
+      WHERE rr.receipt_id IN (${receipts.map(() => '?').join(',')})
+      ORDER BY reason.name COLLATE NOCASE
+    `).all(...receipts.map(receipt => receipt.id));
+    const reasonsByReceipt = new Map();
+    for (const reason of reasons) {
+      if (!reasonsByReceipt.has(reason.receipt_id)) reasonsByReceipt.set(reason.receipt_id, []);
+      reasonsByReceipt.get(reason.receipt_id).push({ id: reason.id, name: reason.name });
+    }
+    return receipts.map(receipt => ({
+      ...receipt,
+      reasons: reasonsByReceipt.get(receipt.id) || []
+    }));
+  }
+
+  getPlasticReceiptSummary(filters = {}) {
+    const conditions = [];
+    const params = [];
+    if (filters.from_date) {
+      conditions.push('received_date >= ?');
+      params.push(filters.from_date);
+    }
+    if (filters.to_date) {
+      conditions.push('received_date <= ?');
+      params.push(filters.to_date);
+    }
+    if (filters.supplier) {
+      conditions.push('supplier = ?');
+      params.push(String(filters.supplier).trim());
+    }
+    if (filters.final_decision) {
+      conditions.push('final_decision = ?');
+      params.push(String(filters.final_decision));
+    }
+    if (filters.search) {
+      const search = `%${String(filters.search).trim()}%`;
+      conditions.push('(supplier LIKE ? OR product_name LIKE ? OR part_name LIKE ?)');
+      params.push(search, search, search);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    return this.db.prepare(`
+      SELECT COUNT(*) AS records_count,
+             COALESCE(SUM(quantity), 0) AS total_quantity,
+             COALESCE(SUM(inspected_samples), 0) AS inspected_samples,
+             COALESCE(SUM(rejected_samples), 0) AS rejected_samples,
+             COALESCE(SUM(CASE WHEN final_decision = 'مقبول' THEN 1 ELSE 0 END), 0) AS accepted_records,
+             COALESCE(SUM(CASE WHEN final_decision = 'مرفوض' THEN 1 ELSE 0 END), 0) AS rejected_records,
+             COALESCE(SUM(CASE WHEN final_decision = 'في انتظار فحص المورد' THEN 1 ELSE 0 END), 0) AS pending_supplier_records,
+             COALESCE(SUM(CASE WHEN final_decision = 'مقبول بنسبة' THEN 1 ELSE 0 END), 0) AS percentage_accepted_records
+      FROM plastic_receipts ${where}
+    `).get(...params);
+  }
+
+  getPlasticReceiptSupplierAnalysis(filters = {}) {
+    const conditions = [];
+    const params = [];
+    if (filters.from_date) {
+      conditions.push('r.received_date >= ?');
+      params.push(filters.from_date);
+    }
+    if (filters.to_date) {
+      conditions.push('r.received_date <= ?');
+      params.push(filters.to_date);
+    }
+    if (filters.supplier) {
+      conditions.push('r.supplier = ?');
+      params.push(String(filters.supplier).trim());
+    }
+    if (filters.final_decision) {
+      conditions.push('r.final_decision = ?');
+      params.push(String(filters.final_decision));
+    }
+    if (filters.search) {
+      const search = `%${String(filters.search).trim()}%`;
+      conditions.push('(r.supplier LIKE ? OR r.product_name LIKE ? OR r.part_name LIKE ?)');
+      params.push(search, search, search);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const suppliers = this.db.prepare(`
+      SELECT r.supplier, COUNT(*) AS records_count,
+             COALESCE(SUM(r.quantity), 0) AS total_quantity,
+             COALESCE(SUM(r.inspected_samples - r.rejected_samples), 0) AS accepted_samples,
+             COALESCE(SUM(r.rejected_samples), 0) AS rejected_samples
+      FROM plastic_receipts r
+      ${where}
+      GROUP BY r.supplier
+      ORDER BY total_quantity DESC, r.supplier COLLATE NOCASE
+    `).all(...params);
+    const reasons = this.db.prepare(`
+      SELECT r.supplier, reason.name,
+             COUNT(DISTINCT r.id) AS records_count,
+             COALESCE(SUM(r.rejected_samples), 0) AS rejected_samples
+      FROM plastic_receipts r
+      JOIN plastic_receipt_reasons rr ON rr.receipt_id = r.id
+      JOIN plastic_rejection_reasons reason ON reason.id = rr.reason_id
+      ${where}
+      GROUP BY r.supplier, reason.id, reason.name
+      ORDER BY r.supplier COLLATE NOCASE, rejected_samples DESC, reason.name COLLATE NOCASE
+    `).all(...params);
+    const reasonsBySupplier = new Map();
+    for (const reason of reasons) {
+      if (!reasonsBySupplier.has(reason.supplier)) reasonsBySupplier.set(reason.supplier, []);
+      reasonsBySupplier.get(reason.supplier).push({
+        name: reason.name,
+        records_count: reason.records_count,
+        rejected_samples: reason.rejected_samples
+      });
+    }
+    return suppliers.map(supplier => ({
+      ...supplier,
+      rejection_reasons: reasonsBySupplier.get(supplier.supplier) || []
+    }));
+  }
+
+  getPlasticSuppliers() {
+    return this.db.prepare(`
+      SELECT id, name FROM plastic_suppliers
+      WHERE is_active = 1
+      ORDER BY name COLLATE NOCASE
+    `).all();
+  }
+
+  savePlasticSupplier(name) {
+    const supplier = String(name ?? '').trim();
+    if (!supplier || supplier.length > 150) throw new Error('اسم المورد مطلوب وبحد أقصى 150 حرفًا');
+    this.db.prepare(`
+      INSERT INTO plastic_suppliers (name) VALUES (?)
+      ON CONFLICT(name) DO UPDATE SET is_active = 1
+    `).run(supplier);
+    return this.db.prepare('SELECT id, name FROM plastic_suppliers WHERE name = ?').get(supplier);
+  }
+
+  getPlasticItems() {
+    return this.db.prepare(`
+      SELECT id, name FROM plastic_item_names
+      WHERE is_active = 1
+      ORDER BY name COLLATE NOCASE
+    `).all();
+  }
+
+  savePlasticItem(name) {
+    const itemName = String(name ?? '').trim();
+    if (!itemName || itemName.length > 150) throw new Error('اسم الصنف مطلوب وبحد أقصى 150 حرفًا');
+    this.db.prepare(`
+      INSERT INTO plastic_item_names (name) VALUES (?)
+      ON CONFLICT(name) DO UPDATE SET is_active = 1
+    `).run(itemName);
+    return this.db.prepare('SELECT id, name FROM plastic_item_names WHERE name = ?').get(itemName);
+  }
+
+  createPlasticItem(name, userId, userName) {
+    const itemName = String(name ?? '').trim();
+    if (!itemName || itemName.length > 150) throw new Error('اسم الصنف مطلوب وبحد أقصى 150 حرفًا');
+    const existing = this.db.prepare('SELECT id, is_active FROM plastic_item_names WHERE name = ?').get(itemName);
+    if (existing?.is_active) throw new Error('الصنف مسجل بالفعل');
+    if (existing) {
+      this.db.prepare('UPDATE plastic_item_names SET is_active = 1 WHERE id = ?').run(existing.id);
+      this.logAudit(userId, userName, 'RESTORE', 'plastic_item_names', existing.id, `إعادة تفعيل صنف بلاستيك: ${itemName}`);
+      return this.db.prepare('SELECT id, name FROM plastic_item_names WHERE id = ?').get(existing.id);
+    }
+    const result = this.db.prepare('INSERT INTO plastic_item_names (name) VALUES (?)').run(itemName);
+    this.logAudit(userId, userName, 'CREATE', 'plastic_item_names', result.lastInsertRowid, `إضافة صنف بلاستيك: ${itemName}`);
+    return this.db.prepare('SELECT id, name FROM plastic_item_names WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  updatePlasticItem(id, name, userId, userName) {
+    const itemId = Number(id);
+    const itemName = String(name ?? '').trim();
+    if (!Number.isSafeInteger(itemId) || itemId < 1) throw new Error('رقم الصنف غير صالح');
+    if (!itemName || itemName.length > 150) throw new Error('اسم الصنف مطلوب وبحد أقصى 150 حرفًا');
+    const existing = this.db.prepare('SELECT id, name FROM plastic_item_names WHERE id = ? AND is_active = 1').get(itemId);
+    if (!existing) throw new Error('الصنف غير موجود أو تم إيقافه');
+    const duplicate = this.db.prepare('SELECT id FROM plastic_item_names WHERE name = ? AND id <> ?').get(itemName, itemId);
+    if (duplicate) throw new Error('يوجد صنف آخر بهذا الاسم بالفعل');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE plastic_item_names SET name = ? WHERE id = ?').run(itemName, itemId);
+      this.db.prepare('UPDATE plastic_receipts SET product_name = ? WHERE product_name = ?').run(itemName, existing.name);
+      this.logAudit(userId, userName, 'UPDATE', 'plastic_item_names', itemId, `تعديل اسم صنف البلاستيك: ${existing.name} ← ${itemName}`);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return this.db.prepare('SELECT id, name FROM plastic_item_names WHERE id = ?').get(itemId);
+  }
+
+  deactivatePlasticItem(id, userId, userName) {
+    const itemId = Number(id);
+    if (!Number.isSafeInteger(itemId) || itemId < 1) throw new Error('رقم الصنف غير صالح');
+    const item = this.db.prepare('SELECT id, name FROM plastic_item_names WHERE id = ? AND is_active = 1').get(itemId);
+    if (!item) throw new Error('الصنف غير موجود أو تم إيقافه بالفعل');
+    this.db.prepare('UPDATE plastic_item_names SET is_active = 0 WHERE id = ?').run(itemId);
+    this.logAudit(userId, userName, 'DELETE', 'plastic_item_names', itemId, `إزالة صنف من قائمة البلاستيك: ${item.name}`);
+    return item;
+  }
+
+  createPlasticSupplier(name, userId, userName) {
+    const supplierName = String(name ?? '').trim();
+    if (!supplierName || supplierName.length > 150) throw new Error('اسم المورد مطلوب وبحد أقصى 150 حرفًا');
+    const existing = this.db.prepare('SELECT id, is_active FROM plastic_suppliers WHERE name = ?').get(supplierName);
+    if (existing?.is_active) throw new Error('المورد مسجل بالفعل');
+    if (existing) {
+      this.db.prepare('UPDATE plastic_suppliers SET is_active = 1 WHERE id = ?').run(existing.id);
+      this.logAudit(userId, userName, 'RESTORE', 'plastic_suppliers', existing.id, `إعادة تفعيل مورد بلاستيك: ${supplierName}`);
+      return this.db.prepare('SELECT id, name FROM plastic_suppliers WHERE id = ?').get(existing.id);
+    }
+    const result = this.db.prepare('INSERT INTO plastic_suppliers (name) VALUES (?)').run(supplierName);
+    this.logAudit(userId, userName, 'CREATE', 'plastic_suppliers', result.lastInsertRowid, `إضافة مورد بلاستيك: ${supplierName}`);
+    return this.db.prepare('SELECT id, name FROM plastic_suppliers WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  updatePlasticSupplier(id, name, userId, userName) {
+    const supplierId = Number(id);
+    const supplierName = String(name ?? '').trim();
+    if (!Number.isSafeInteger(supplierId) || supplierId < 1) throw new Error('رقم المورد غير صالح');
+    if (!supplierName || supplierName.length > 150) throw new Error('اسم المورد مطلوب وبحد أقصى 150 حرفًا');
+    const existing = this.db.prepare('SELECT id, name FROM plastic_suppliers WHERE id = ? AND is_active = 1').get(supplierId);
+    if (!existing) throw new Error('المورد غير موجود أو تم إيقافه');
+    const duplicate = this.db.prepare('SELECT id FROM plastic_suppliers WHERE name = ? AND id <> ?').get(supplierName, supplierId);
+    if (duplicate) throw new Error('يوجد مورد آخر بهذا الاسم بالفعل');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE plastic_suppliers SET name = ? WHERE id = ?').run(supplierName, supplierId);
+      this.db.prepare('UPDATE plastic_receipts SET supplier = ? WHERE supplier = ?').run(supplierName, existing.name);
+      this.logAudit(userId, userName, 'UPDATE', 'plastic_suppliers', supplierId, `تعديل اسم مورد البلاستيك: ${existing.name} ← ${supplierName}`);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return this.db.prepare('SELECT id, name FROM plastic_suppliers WHERE id = ?').get(supplierId);
+  }
+
+  deactivatePlasticSupplier(id, userId, userName) {
+    const supplierId = Number(id);
+    if (!Number.isSafeInteger(supplierId) || supplierId < 1) throw new Error('رقم المورد غير صالح');
+    const supplier = this.db.prepare('SELECT id, name FROM plastic_suppliers WHERE id = ? AND is_active = 1').get(supplierId);
+    if (!supplier) throw new Error('المورد غير موجود أو تم إيقافه بالفعل');
+    this.db.prepare('UPDATE plastic_suppliers SET is_active = 0 WHERE id = ?').run(supplierId);
+    this.logAudit(userId, userName, 'DELETE', 'plastic_suppliers', supplierId, `إزالة مورد من قائمة البلاستيك: ${supplier.name}`);
+    return supplier;
+  }
+
+  getPlasticRejectionReasons() {
+    return this.db.prepare(`
+      SELECT id, name FROM plastic_rejection_reasons
+      WHERE is_active = 1
+      ORDER BY id
+    `).all();
+  }
+
+  savePlasticRejectionReason(name) {
+    const reason = String(name ?? '').trim();
+    if (!reason || reason.length > 250) throw new Error('سبب الرفض مطلوب وبحد أقصى 250 حرفًا');
+    this.db.prepare(`
+      INSERT INTO plastic_rejection_reasons (name) VALUES (?)
+      ON CONFLICT(name) DO UPDATE SET is_active = 1
+    `).run(reason);
+    return this.db.prepare('SELECT id, name FROM plastic_rejection_reasons WHERE name = ?').get(reason);
+  }
+
+  createPlasticRejectionReason(name, userId, userName) {
+    const reason = String(name ?? '').trim();
+    if (!reason || reason.length > 250) throw new Error('سبب الرفض مطلوب وبحد أقصى 250 حرفًا');
+    const existing = this.db.prepare('SELECT id, is_active FROM plastic_rejection_reasons WHERE name = ?').get(reason);
+    if (existing?.is_active) throw new Error('سبب الرفض مسجل بالفعل');
+    if (existing) {
+      this.db.prepare('UPDATE plastic_rejection_reasons SET is_active = 1 WHERE id = ?').run(existing.id);
+      this.logAudit(userId, userName, 'RESTORE', 'plastic_rejection_reasons', existing.id, `إعادة تفعيل سبب رفض بلاستيك: ${reason}`);
+      return this.db.prepare('SELECT id, name FROM plastic_rejection_reasons WHERE id = ?').get(existing.id);
+    }
+    const result = this.db.prepare('INSERT INTO plastic_rejection_reasons (name) VALUES (?)').run(reason);
+    this.logAudit(userId, userName, 'CREATE', 'plastic_rejection_reasons', result.lastInsertRowid, `إضافة سبب رفض بلاستيك: ${reason}`);
+    return this.db.prepare('SELECT id, name FROM plastic_rejection_reasons WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  updatePlasticRejectionReason(id, name, userId, userName) {
+    const reasonId = Number(id);
+    const reasonName = String(name ?? '').trim();
+    if (!Number.isSafeInteger(reasonId) || reasonId < 1) throw new Error('رقم سبب الرفض غير صالح');
+    if (!reasonName || reasonName.length > 250) throw new Error('سبب الرفض مطلوب وبحد أقصى 250 حرفًا');
+    const existing = this.db.prepare('SELECT id, name FROM plastic_rejection_reasons WHERE id = ? AND is_active = 1').get(reasonId);
+    if (!existing) throw new Error('سبب الرفض غير موجود أو تم إيقافه');
+    const duplicate = this.db.prepare('SELECT id FROM plastic_rejection_reasons WHERE name = ? AND id <> ?').get(reasonName, reasonId);
+    if (duplicate) throw new Error('يوجد سبب رفض آخر بهذا الاسم بالفعل');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE plastic_rejection_reasons SET name = ? WHERE id = ?').run(reasonName, reasonId);
+      this.logAudit(userId, userName, 'UPDATE', 'plastic_rejection_reasons', reasonId, `تعديل سبب رفض البلاستيك: ${existing.name} ← ${reasonName}`);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return this.db.prepare('SELECT id, name FROM plastic_rejection_reasons WHERE id = ?').get(reasonId);
+  }
+
+  deactivatePlasticRejectionReason(id, userId, userName) {
+    const reasonId = Number(id);
+    if (!Number.isSafeInteger(reasonId) || reasonId < 1) throw new Error('رقم سبب الرفض غير صالح');
+    const reason = this.db.prepare('SELECT id, name FROM plastic_rejection_reasons WHERE id = ? AND is_active = 1').get(reasonId);
+    if (!reason) throw new Error('سبب الرفض غير موجود أو تم إيقافه بالفعل');
+    this.db.prepare('UPDATE plastic_rejection_reasons SET is_active = 0 WHERE id = ?').run(reasonId);
+    this.logAudit(userId, userName, 'DELETE', 'plastic_rejection_reasons', reasonId, `إزالة سبب رفض من قائمة البلاستيك: ${reason.name}`);
+    return reason;
+  }
+
+  savePlasticReceipt(data, userId, userName, receiptId = null, manageTransaction = true) {
+    const receipt = normalizePlasticReceipt(data);
+    const item = this.db.prepare('SELECT id FROM plastic_item_names WHERE name = ? AND is_active = 1').get(receipt.product_name);
+    if (!item) throw new Error('الصنف المحدد غير موجود في قائمة أصناف البلاستيك');
+    const knownReasons = receipt.reason_ids.length
+      ? this.db.prepare(`SELECT id FROM plastic_rejection_reasons WHERE is_active = 1 AND id IN (${receipt.reason_ids.map(() => '?').join(',')})`)
+        .all(...receipt.reason_ids).map(reason => reason.id)
+      : [];
+    if (knownReasons.length !== receipt.reason_ids.length) throw new Error('يوجد سبب رفض غير صالح');
+    const existing = receiptId === null
+      ? null
+      : this.db.prepare('SELECT id FROM plastic_receipts WHERE id = ?').get(receiptId);
+    if (receiptId !== null && !existing) throw new Error('سجل استلام البلاستيك غير موجود');
+
+    if (manageTransaction) this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.savePlasticSupplier(receipt.supplier);
+      let id = receiptId;
+      if (id === null) {
+        const result = this.db.prepare(`
+          INSERT INTO plastic_receipts (
+            supplier, received_date, production_line_name, product_name, product_id, part_name, quantity,
+            inspected_samples, rejected_samples, notes, final_decision, accepted_percentage, created_by
+          ) VALUES (?, ?, '', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          receipt.supplier, receipt.received_date, receipt.product_name,
+          receipt.part_name, receipt.quantity, receipt.inspected_samples, receipt.rejected_samples, receipt.notes,
+          receipt.final_decision, receipt.accepted_percentage, userId || null
+        );
+        id = Number(result.lastInsertRowid);
+      } else {
+        this.db.prepare(`
+          UPDATE plastic_receipts SET
+            supplier = ?, received_date = ?, production_line_name = '', product_name = ?, product_id = NULL, part_name = ?, quantity = ?,
+            inspected_samples = ?, rejected_samples = ?, notes = ?, final_decision = ?,
+            accepted_percentage = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(
+          receipt.supplier, receipt.received_date, receipt.product_name,
+          receipt.part_name, receipt.quantity, receipt.inspected_samples, receipt.rejected_samples, receipt.notes,
+          receipt.final_decision, receipt.accepted_percentage, id
+        );
+        this.db.prepare('DELETE FROM plastic_receipt_reasons WHERE receipt_id = ?').run(id);
+      }
+      const addReason = this.db.prepare('INSERT INTO plastic_receipt_reasons (receipt_id, reason_id) VALUES (?, ?)');
+      for (const reasonId of knownReasons) addReason.run(id, reasonId);
+      if (manageTransaction) this.db.exec('COMMIT');
+      this.logAudit(
+        userId, userName, receiptId === null ? 'CREATE' : 'UPDATE', 'plastic_receipts', id,
+        `${receiptId === null ? 'إضافة' : 'تعديل'} استلام بلاستيك: ${receipt.supplier}`
+      );
+      return this.getPlasticReceipts({ id }).find(item => item.id === Number(id));
+    } catch (error) {
+      if (manageTransaction) this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  deletePlasticReceipt(id, userId, userName) {
+    const receiptId = Number(id);
+    if (!Number.isSafeInteger(receiptId) || receiptId < 1) throw new Error('رقم السجل غير صالح');
+    const receipt = this.db.prepare('SELECT * FROM plastic_receipts WHERE id = ?').get(receiptId);
+    if (!receipt) throw new Error('سجل استلام البلاستيك غير موجود');
+    this.db.prepare('DELETE FROM plastic_receipts WHERE id = ?').run(receiptId);
+    this.logAudit(userId, userName, 'DELETE', 'plastic_receipts', receiptId, `حذف استلام بلاستيك: ${receipt.supplier}`);
+    return receipt;
+  }
+
+  deleteAllPlasticReceipts(userId, userName) {
+    const count = this.db.prepare('SELECT COUNT(*) AS count FROM plastic_receipts').get().count;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM plastic_receipts').run();
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    this.logAudit(userId, userName, 'DELETE_ALL', 'plastic_receipts', 0, `حذف جميع استلامات البلاستيك (${count} سجل)`, { deleted_count: count });
+    return { deleted_count: count };
+  }
+
+  importPlasticReceipts(rows, userId, userName) {
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error('لم يتم العثور على سجلات صالحة للاستيراد');
+    if (rows.length > 2000) throw new Error('الحد الأقصى للاستيراد في المرة الواحدة هو 2000 سجل');
+    const records = rows.map((row, index) => {
+      try {
+        const reasonNames = [...new Set((Array.isArray(row.reasons) ? row.reasons : [])
+          .map(reason => String(reason).trim()).filter(Boolean))];
+        const receipt = normalizePlasticReceipt({
+          ...row,
+          reason_ids: reasonNames.length ? reasonNames.map((_, reasonIndex) => reasonIndex + 1) : []
+        });
+        return { receipt, reasonNames };
+      } catch (error) {
+        throw new Error(`الصف ${index + 1}: ${error.message}`);
+      }
+    });
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const { receipt, reasonNames } of records) {
+        this.savePlasticItem(receipt.product_name);
+        const reasonIds = reasonNames.map(name => this.savePlasticRejectionReason(name).id);
+        this.savePlasticReceipt({ ...receipt, reason_ids: reasonIds }, userId, userName, null, false);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    this.logAudit(userId, userName, 'IMPORT', 'plastic_receipts', 0, `استيراد ${records.length} سجل استلام بلاستيك`, { imported_count: records.length });
+    return { imported_count: records.length };
   }
 
   // ==========================================
@@ -95,14 +1014,23 @@ class QualityDB {
   // ==========================================
   // PRODUCTION LINES
   // ==========================================
-  getAllLines() {
-    return this.db.prepare(`
+  getAllLines(department = null, includeArchived = false) {
+    let sql = `
       SELECT l.*, p.name as current_product_name, p.code as current_product_code,
              (SELECT COUNT(*) FROM pallets WHERE line_id = l.id) as pallets_count
       FROM production_lines l
       LEFT JOIN products p ON l.current_product_id = p.id
-      ORDER BY l.line_number ASC
-    `).all();
+    `;
+    const params = [];
+    const conditions = [];
+    if (department && department !== 'all') {
+      conditions.push('l.department = ?');
+      params.push(department);
+    }
+    if (!includeArchived) conditions.push('l.is_archived = 0');
+    if (conditions.length) sql += ` WHERE ${conditions.join(' AND ')}`;
+    sql += ' ORDER BY l.line_number ASC';
+    return this.db.prepare(sql).all(...params);
   }
 
   getLineById(id) {
@@ -116,8 +1044,8 @@ class QualityDB {
 
   createLine(data, currentUserId, currentUserName) {
     const stmt = this.db.prepare(`
-      INSERT INTO production_lines (line_number, name, supervisor_name, current_product_id, status, notes, created_by, updated_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO production_lines (line_number, name, supervisor_name, current_product_id, status, notes, department, created_by, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(
       parseInt(data.line_number, 10),
@@ -126,6 +1054,7 @@ class QualityDB {
       data.current_product_id ? parseInt(data.current_product_id, 10) : null,
       data.status || 'نشط',
       data.notes || null,
+      data.department || 'home',
       currentUserId || null,
       currentUserId || null
     );
@@ -136,7 +1065,7 @@ class QualityDB {
   updateLine(id, data, currentUserId, currentUserName) {
     const stmt = this.db.prepare(`
       UPDATE production_lines
-      SET line_number = ?, name = ?, supervisor_name = ?, current_product_id = ?, status = ?, notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      SET line_number = ?, name = ?, supervisor_name = ?, current_product_id = ?, status = ?, notes = ?, department = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
     stmt.run(
@@ -146,6 +1075,7 @@ class QualityDB {
       data.current_product_id ? parseInt(data.current_product_id, 10) : null,
       data.status || 'نشط',
       data.notes || null,
+      data.department || 'home',
       currentUserId || null,
       id
     );
@@ -153,30 +1083,42 @@ class QualityDB {
     return this.getLineById(id);
   }
 
-  deleteLine(id, currentUserId, currentUserName) {
+  archiveLine(id, currentUserId, currentUserName) {
     const line = this.getLineById(id);
     if (!line) throw new Error('خط الإنتاج غير موجود');
-
-    const count = this.db.prepare('SELECT COUNT(*) as count FROM pallets WHERE line_id = ?').get(id).count;
-    if (count > 0) {
-      throw new Error(`لا يمكن حذف خط الإنتاج لوجود ${count} بالته مسجلة مرتبطة به. يمكنك تغيير حالته إلى متوقف.`);
+    if (!line.is_archived) {
+      this.db.prepare('UPDATE production_lines SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+      this.logAudit(currentUserId, currentUserName, 'ARCHIVE', 'production_lines', id, `أرشفة خط الإنتاج رقم ${line.line_number} (${line.name})`);
     }
+    return true;
+  }
 
-    this.db.prepare('DELETE FROM production_lines WHERE id = ?').run(id);
-    this.logAudit(currentUserId, currentUserName, 'DELETE', 'production_lines', id, `حذف خط الإنتاج رقم ${line.line_number} (${line.name})`);
+  restoreLine(id, currentUserId, currentUserName) {
+    const line = this.getLineById(id);
+    if (!line) throw new Error('خط الإنتاج غير موجود');
+    if (line.is_archived) {
+      this.db.prepare('UPDATE production_lines SET is_archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+      this.logAudit(currentUserId, currentUserName, 'RESTORE', 'production_lines', id, `استعادة خط الإنتاج رقم ${line.line_number} (${line.name})`);
+    }
     return true;
   }
 
   // ==========================================
-  // PRODUCTS (HOME APPLIANCES)
+  // PRODUCTS (HOME APPLIANCES & SERIA)
   // ==========================================
-  getAllProducts() {
-    return this.db.prepare(`
+  getAllProducts(department = null) {
+    let sql = `
       SELECT p.*, l.name as default_line_name, l.line_number as default_line_number
       FROM products p
       LEFT JOIN production_lines l ON p.default_line_id = l.id
-      ORDER BY p.id ASC
-    `).all();
+    `;
+    const params = [];
+    if (department && department !== 'all') {
+      sql += ' WHERE (p.department = ? OR p.department IS NULL)';
+      params.push(department);
+    }
+    sql += ' ORDER BY p.id ASC';
+    return this.db.prepare(sql).all(...params);
   }
 
   getProductById(id) {
@@ -190,8 +1132,8 @@ class QualityDB {
 
   createProduct(data, currentUserId, currentUserName) {
     const stmt = this.db.prepare(`
-      INSERT INTO products (code, name, specifications, weight, unit, default_line_id, extra_info, is_active, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (code, name, specifications, weight, unit, default_line_id, extra_info, is_active, department, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(
       data.code,
@@ -202,16 +1144,45 @@ class QualityDB {
       data.default_line_id ? parseInt(data.default_line_id, 10) : null,
       data.extra_info || null,
       data.is_active ?? 1,
+      data.department || 'home',
       currentUserId || null
     );
-    this.logAudit(currentUserId, currentUserName, 'CREATE', 'products', res.lastInsertRowid, `إضافة منتج أجهزة منزلية: ${data.name} (${data.code})`);
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'products', res.lastInsertRowid, `إضافة منتج: ${data.name} (${data.code})`);
     return this.getProductById(res.lastInsertRowid);
+  }
+
+  createQuickProduct(name, department, currentUserId, currentUserName) {
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName) throw new Error('اكتب اسم المنتج أولاً.');
+    if (department !== null && !['home', 'seria'].includes(department)) {
+      throw new Error('قسم المنتج غير صالح.');
+    }
+    const duplicate = this.db.prepare('SELECT id FROM products WHERE name = ? COLLATE NOCASE AND is_active = 1 ORDER BY id LIMIT 1').get(normalizedName);
+    if (duplicate) {
+      this.db.prepare('UPDATE products SET department = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(duplicate.id);
+      this.logAudit(currentUserId, currentUserName, 'UPDATE', 'products', duplicate.id, `مشاركة المنتج بين الجودة والهوالك: ${normalizedName}`);
+      return this.getProductById(duplicate.id);
+    }
+
+    const codePrefix = `SCRAP-${Date.now().toString(36).toUpperCase()}`;
+    let code = '';
+    let suffix = 1;
+    while (!code) {
+      const candidate = `${codePrefix}-${suffix++}`;
+      if (!this.db.prepare('SELECT id FROM products WHERE code = ?').get(candidate)) code = candidate;
+    }
+    const result = this.db.prepare(`
+      INSERT INTO products (code, name, unit, is_active, department, created_by)
+      VALUES (?, ?, 'قطعة', 1, ?, ?)
+    `).run(code, normalizedName, department, currentUserId || null);
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'products', result.lastInsertRowid, `إضافة منتج سريع مشترك: ${normalizedName}`);
+    return this.getProductById(result.lastInsertRowid);
   }
 
   updateProduct(id, data, currentUserId, currentUserName) {
     const stmt = this.db.prepare(`
       UPDATE products
-      SET code = ?, name = ?, specifications = ?, weight = ?, unit = ?, default_line_id = ?, extra_info = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+      SET code = ?, name = ?, specifications = ?, weight = ?, unit = ?, default_line_id = ?, extra_info = ?, is_active = ?, department = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
     stmt.run(
@@ -223,6 +1194,7 @@ class QualityDB {
       data.default_line_id ? parseInt(data.default_line_id, 10) : null,
       data.extra_info || null,
       data.is_active ?? 1,
+      data.department || 'home',
       id
     );
     this.logAudit(currentUserId, currentUserName, 'UPDATE', 'products', id, `تعديل منتج: ${data.name} (${data.code})`);
@@ -520,6 +1492,10 @@ class QualityDB {
       sql += ' AND p.pallet_number = ?';
       params.push(parseInt(filters.pallet_number, 10));
     }
+    if (filters.department && filters.department !== 'all') {
+      sql += ' AND (p.department = ? OR l.department = ?)';
+      params.push(filters.department, filters.department);
+    }
     if (filters.search) {
       sql += ' AND (prod.name LIKE ? OR prod.code LIKE ? OR l.name LIKE ? OR i.name LIKE ? OR p.notes LIKE ?)';
       const term = `%${filters.search}%`;
@@ -599,14 +1575,17 @@ class QualityDB {
       decision = this.calculateAqlDecision(rejectedQty, maxAllowedAc, rejectLimitRe, decisionMode);
     }
 
+    const line = this.getLineById(lineId);
+    const department = data.department || (line ? line.department : 'home');
+
     const stmt = this.db.prepare(`
       INSERT INTO pallets (
         date, received_time, shift_id, line_id, pallet_number, product_id,
         quantity_on_pallet, inspection_status, inspection_date, inspection_started_at, inspection_completed_at,
         sample_size_required, max_allowed_defects, reject_limit,
         inspected_quantity, rejected_quantity, pallet_decision, decision_mode,
-        inspector_id, notes, created_by, updated_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        inspector_id, notes, department, created_by, updated_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const res = stmt.run(
@@ -630,6 +1609,7 @@ class QualityDB {
       decisionMode,
       data.inspector_id ? parseInt(data.inspector_id, 10) : null,
       data.notes || null,
+      department,
       currentUserId || null,
       currentUserId || null
     );
@@ -846,7 +1826,7 @@ class QualityDB {
   // QUALITY SUMMARY & DAILY PRODUCTION BREAKDOWN
   // ==========================================
   getLineQualitySummary(filters = {}) {
-    const lines = this.getAllLines();
+    const lines = this.getAllLines(filters.department, true);
     const queryDate = filters.date || new Date().toISOString().slice(0, 10);
     const dateFrom = filters.date_from || queryDate;
     const dateTo = filters.date_to || queryDate;
@@ -935,7 +1915,10 @@ class QualityDB {
         rejected_pallets: stats.rejected_pallets,
         aggregated_reasons: aggregatedReasons,
         reasons_breakdown: reasons,
-        status: line.status
+        status: line.status,
+        date_from: dateFrom,
+        date_to: dateTo,
+        report_date: dateFrom === dateTo ? dateFrom : `${dateFrom} إلى ${dateTo}`
       };
     });
   }
@@ -944,6 +1927,13 @@ class QualityDB {
   getDailyProductsSummary(filters = {}) {
     const dateFrom = filters.date_from || filters.date || new Date().toISOString().slice(0, 10);
     const dateTo = filters.date_to || filters.date || new Date().toISOString().slice(0, 10);
+
+    let where = 'WHERE 1=1';
+    const params = [dateFrom, dateTo];
+    if (filters.department && filters.department !== 'all') {
+      where += ' AND (prod.department = ? OR l.department = ?)';
+      params.push(filters.department, filters.department);
+    }
 
     return this.db.prepare(`
       SELECT
@@ -968,10 +1958,11 @@ class QualityDB {
         END as rejection_rate
       FROM products prod
       LEFT JOIN pallets p ON prod.id = p.product_id AND p.date >= ? AND p.date <= ?
-      LEFT JOIN production_lines l ON prod.default_line_id = l.id
-      GROUP BY prod.id
-      ORDER BY total_produced_qty DESC
-    `).all(dateFrom, dateTo);
+      LEFT JOIN production_lines l ON COALESCE(p.line_id, prod.default_line_id) = l.id
+      ${where}
+      GROUP BY prod.id, l.id
+      ORDER BY total_produced_qty DESC, l.line_number ASC
+    `).all(...params);
   }
 
   // ==========================================
@@ -1092,6 +2083,567 @@ class QualityDB {
     };
   }
 
+  getLineSampleDashboardMetrics(filters = {}) {
+    const parseDate = (value, label) => {
+      if (!value) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${label} غير صالح.`);
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+        throw new Error(`${label} غير صالح.`);
+      }
+      return value;
+    };
+    const dateFrom = parseDate(filters.date_from, 'تاريخ البداية');
+    const dateTo = parseDate(filters.date_to, 'تاريخ النهاية');
+    const month = filters.month || null;
+    if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('الشهر المحدد غير صالح.');
+    if (dateFrom && dateTo && dateFrom > dateTo) throw new Error('تاريخ البداية يجب أن يسبق تاريخ النهاية.');
+
+    const positiveId = (value, label) => {
+      if (!value) return null;
+      const id = Number(value);
+      if (!Number.isInteger(id) || id < 1) throw new Error(`${label} غير صالح.`);
+      return id;
+    };
+    const lineId = positiveId(filters.line_id, 'خط الإنتاج');
+    const productId = positiveId(filters.product_id, 'المنتج');
+    const reasonId = positiveId(filters.reason_id, 'العيب');
+    const department = filters.department && filters.department !== 'all' ? filters.department : null;
+
+    // Conditions applied on the unified inspections view
+    const conditions = ['date(u.date) IS NOT NULL'];
+    const params = [];
+    if (dateFrom) { conditions.push('date(u.date) >= ?'); params.push(dateFrom); }
+    if (dateTo) { conditions.push('date(u.date) <= ?'); params.push(dateTo); }
+    if (month) { conditions.push('substr(date(u.date), 1, 7) = ?'); params.push(month); }
+    if (lineId) { conditions.push('u.line_id = ?'); params.push(lineId); }
+    if (productId) { conditions.push('u.product_id = ?'); params.push(productId); }
+    if (department) {
+      conditions.push('(l.department = ? OR prod.department = ?)');
+      params.push(department, department);
+    }
+    if (reasonId) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM (
+          SELECT pull_id as insp_id, reason_id, 'line_pull' as src FROM line_sample_pull_defects
+          UNION ALL
+          SELECT pallet_id as insp_id, reason_id, 'pallet' as src FROM pallet_rejection_items
+          UNION ALL
+          SELECT hourly_sample_id as insp_id, reason_id, 'hourly' as src FROM hourly_sample_defects
+        ) d_chk
+        WHERE d_chk.insp_id = u.id AND d_chk.src = u.source AND d_chk.reason_id = ?
+      )`);
+      params.push(reasonId);
+    }
+
+    const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // CTE for unified inspection records from all sources (Line pulls, Pallets, Hourly samples)
+    const baseCte = `
+      WITH unified_inspections AS (
+        SELECT 
+          'line_pull' AS source,
+          p.id,
+          p.date,
+          p.line_id,
+          p.product_id,
+          p.sample_count AS inspected_samples,
+          (SELECT COALESCE(SUM(d.count), 0) FROM line_sample_pull_defects d WHERE d.pull_id = p.id) AS defect_count,
+          COALESCE(p.completed_at, p.created_at) AS activity_time
+        FROM line_sample_pulls p
+        WHERE p.status = 'completed' AND p.sample_count > 0
+
+        UNION ALL
+
+        SELECT 
+          'pallet' AS source,
+          pal.id,
+          pal.date,
+          pal.line_id,
+          pal.product_id,
+          pal.inspected_quantity AS inspected_samples,
+          (SELECT COALESCE(SUM(pri.count), 0) FROM pallet_rejection_items pri WHERE pri.pallet_id = pal.id) AS defect_count,
+          COALESCE(pal.inspection_completed_at, pal.created_at) AS activity_time
+        FROM pallets pal
+        WHERE pal.inspected_quantity > 0
+
+        UNION ALL
+
+        SELECT 
+          'hourly' AS source,
+          h.id,
+          h.date,
+          h.line_id,
+          h.product_id,
+          h.sample_count AS inspected_samples,
+          (SELECT COALESCE(SUM(hsd.count), 0) FROM hourly_sample_defects hsd WHERE hsd.hourly_sample_id = h.id) AS defect_count,
+          COALESCE(h.updated_at, h.created_at) AS activity_time
+        FROM hourly_samples h
+        WHERE h.sample_count > 0
+      )
+    `;
+
+    const fromUnified = `
+      FROM unified_inspections u
+      JOIN production_lines l ON l.id = u.line_id
+      JOIN products prod ON prod.id = u.product_id
+      ${whereSql}
+    `;
+
+    const aggregate = `
+      COUNT(u.id) AS completed_pulls,
+      COALESCE(SUM(u.inspected_samples), 0) AS inspected_samples,
+      COALESCE(SUM(u.defect_count), 0) AS rejected_samples,
+      COALESCE(SUM(u.defect_count), 0) AS defect_occurrences
+    `;
+
+    const withRate = rows => rows.map(row => ({
+      ...row,
+      rejection_rate: Number(row.inspected_samples) > 0
+        ? Number(((row.rejected_samples / row.inspected_samples) * 100).toFixed(2))
+        : null
+    }));
+
+    const totals = this.db.prepare(`
+      ${baseCte}
+      SELECT ${aggregate}, MAX(u.activity_time) AS last_updated
+      ${fromUnified}
+    `).get(...params);
+
+    const daily = withRate(this.db.prepare(`
+      ${baseCte}
+      SELECT date(u.date) AS date, ${aggregate}
+      ${fromUnified}
+      GROUP BY date(u.date)
+      ORDER BY date ASC
+    `).all(...params));
+
+    const dailyBreakdown = withRate(this.db.prepare(`
+      ${baseCte}
+      SELECT date(u.date) AS date, l.id AS line_id, l.line_number, l.name AS line_name,
+             prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             ${aggregate}
+      ${fromUnified}
+      GROUP BY date(u.date), l.id, l.line_number, l.name, prod.id, prod.name, prod.code
+      ORDER BY date ASC, l.line_number ASC, prod.name COLLATE NOCASE
+    `).all(...params));
+
+    const products = withRate(this.db.prepare(`
+      ${baseCte}
+      SELECT prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             ${aggregate}
+      ${fromUnified}
+      GROUP BY prod.id, prod.name, prod.code
+      ORDER BY prod.name COLLATE NOCASE
+    `).all(...params));
+
+    const lineProducts = withRate(this.db.prepare(`
+      ${baseCte}
+      SELECT MIN(l.id) AS line_id, MIN(l.line_number) AS line_number, TRIM(l.name) AS line_name,
+             prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             ${aggregate}
+      ${fromUnified}
+      GROUP BY TRIM(l.name), prod.id, prod.name, prod.code
+      ORDER BY MIN(l.line_number) ASC, prod.name COLLATE NOCASE
+    `).all(...params));
+
+    // Defect breakdown CTE for ALL defects from ALL sources
+    const defectConditions = ['date(ud.date) IS NOT NULL'];
+    const defectParams = [];
+    if (dateFrom) { defectConditions.push('date(ud.date) >= ?'); defectParams.push(dateFrom); }
+    if (dateTo) { defectConditions.push('date(ud.date) <= ?'); defectParams.push(dateTo); }
+    if (month) { defectConditions.push('substr(date(ud.date), 1, 7) = ?'); defectParams.push(month); }
+    if (lineId) { defectConditions.push('ud.line_id = ?'); defectParams.push(lineId); }
+    if (productId) { defectConditions.push('ud.product_id = ?'); defectParams.push(productId); }
+    if (department) {
+      defectConditions.push('(l.department = ? OR prod.department = ?)');
+      defectParams.push(department, department);
+    }
+    if (reasonId) {
+      defectConditions.push('ud.reason_id = ?');
+      defectParams.push(reasonId);
+    }
+
+    const defectWhereSql = defectConditions.length ? `WHERE ${defectConditions.join(' AND ')}` : '';
+
+    const defectCte = `
+      WITH unified_defects AS (
+        SELECT 
+          d.reason_id,
+          d.count,
+          p.date,
+          p.line_id,
+          p.product_id
+        FROM line_sample_pull_defects d
+        JOIN line_sample_pulls p ON p.id = d.pull_id
+        WHERE p.status = 'completed'
+
+        UNION ALL
+
+        SELECT 
+          pri.reason_id,
+          pri.count,
+          pal.date,
+          pal.line_id,
+          pal.product_id
+        FROM pallet_rejection_items pri
+        JOIN pallets pal ON pal.id = pri.pallet_id
+        WHERE pal.inspected_quantity > 0
+
+        UNION ALL
+
+        SELECT 
+          hsd.reason_id,
+          hsd.count,
+          h.date,
+          h.line_id,
+          h.product_id
+        FROM hourly_sample_defects hsd
+        JOIN hourly_samples h ON h.id = hsd.hourly_sample_id
+      )
+    `;
+
+    const defectFrom = `
+      FROM unified_defects ud
+      JOIN rejection_reasons rr ON rr.id = ud.reason_id
+      JOIN production_lines l ON l.id = ud.line_id
+      JOIN products prod ON prod.id = ud.product_id
+      ${defectWhereSql}
+    `;
+
+    const defects = this.db.prepare(`
+      ${defectCte}
+      SELECT rr.id AS reason_id, rr.name AS reason_name, rr.category,
+             COALESCE(SUM(ud.count), 0) AS occurrences
+      ${defectFrom}
+      GROUP BY rr.id, rr.name, rr.category
+      ORDER BY occurrences DESC, rr.name COLLATE NOCASE
+    `).all(...defectParams);
+
+    const totalDefectOccurrences = defects.reduce((sum, defect) => sum + Number(defect.occurrences || 0), 0);
+    defects.forEach(defect => {
+      defect.share = totalDefectOccurrences > 0
+        ? Number(((defect.occurrences / totalDefectOccurrences) * 100).toFixed(2))
+        : null;
+    });
+
+    const defectRelations = this.db.prepare(`
+      ${defectCte}
+      SELECT ud.reason_id, prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             MIN(l.id) AS line_id, MIN(l.line_number) AS line_number, TRIM(l.name) AS line_name,
+             COALESCE(SUM(ud.count), 0) AS occurrences
+      ${defectFrom}
+      GROUP BY ud.reason_id, prod.id, prod.name, prod.code, TRIM(l.name)
+    `).all(...defectParams);
+
+    const productDefects = this.db.prepare(`
+      ${defectCte}
+      SELECT prod.id AS product_id, ud.reason_id, rr.name AS reason_name,
+             COALESCE(SUM(ud.count), 0) AS occurrences
+      ${defectFrom}
+      GROUP BY prod.id, ud.reason_id, rr.name
+    `).all(...defectParams);
+
+    const minimumSampleSize = 30;
+    const bestItems = rows => {
+      const eligible = rows.filter(row => Number(row.inspected_samples) >= minimumSampleSize && row.rejection_rate !== null);
+      if (!eligible.length) return [];
+      const bestRate = Math.min(...eligible.map(row => row.rejection_rate));
+      return eligible.filter(row => Math.abs(row.rejection_rate - bestRate) < 0.005);
+    };
+
+    const bestLines = bestItems(withRate(this.db.prepare(`
+      ${baseCte}
+      SELECT MIN(l.id) AS line_id, MIN(l.line_number) AS line_number, TRIM(l.name) AS line_name, ${aggregate}
+      ${fromUnified}
+      GROUP BY TRIM(l.name)
+    `).all(...params)));
+
+    const bestProducts = bestItems(products);
+    const maxDefects = defects.length ? defects[0].occurrences : 0;
+    const minDefects = defects.length ? defects[defects.length - 1].occurrences : 0;
+
+    return {
+      filters: { date_from: dateFrom, date_to: dateTo, month, line_id: lineId, product_id: productId, reason_id: reasonId },
+      totals: {
+        completed_pulls: Number(totals.completed_pulls || 0),
+        inspected_samples: Number(totals.inspected_samples || 0),
+        rejected_pulls: Number(totals.rejected_samples || 0),
+        rejected_samples: Number(totals.rejected_samples || 0),
+        rejection_rate: Number(totals.inspected_samples) > 0
+          ? Number(((totals.rejected_samples / totals.inspected_samples) * 100).toFixed(2))
+          : null,
+        total_defect_occurrences: totalDefectOccurrences,
+        last_updated: totals.last_updated,
+        invalid_date_records: 0
+      },
+      minimum_sample_size: minimumSampleSize,
+      best_lines: bestLines,
+      best_products: bestProducts,
+      most_frequent_defects: defects.filter(defect => Number(defect.occurrences) === Number(maxDefects)),
+      least_frequent_defects: defects.filter(defect => Number(defect.occurrences) === Number(minDefects)),
+      daily,
+      daily_breakdown: dailyBreakdown,
+      products,
+      line_products: lineProducts,
+      defects,
+      defect_relations: defectRelations,
+      product_defects: productDefects
+    };
+  }
+
+  getQualityDashboardMetrics(filters = {}) {
+    const parseDate = (value, label) => {
+      if (!value) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${label} غير صالح.`);
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+        throw new Error(`${label} غير صالح.`);
+      }
+      return value;
+    };
+    const dateFrom = parseDate(filters.date_from, 'تاريخ البداية');
+    const dateTo = parseDate(filters.date_to, 'تاريخ النهاية');
+    const month = filters.month || null;
+    if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('الشهر المحدد غير صالح.');
+    if (dateFrom && dateTo && dateFrom > dateTo) throw new Error('تاريخ البداية يجب أن يسبق تاريخ النهاية.');
+    const positiveId = (value, label) => {
+      if (!value) return null;
+      const id = Number(value);
+      if (!Number.isInteger(id) || id < 1) throw new Error(`${label} غير صالح.`);
+      return id;
+    };
+    const lineId = positiveId(filters.line_id, 'خط الإنتاج');
+    const productId = positiveId(filters.product_id, 'المنتج');
+    const reasonId = positiveId(filters.reason_id, 'العيب');
+    const department = filters.department && filters.department !== 'all' ? filters.department : null;
+
+    const conditions = [
+      "p.inspection_status = 'تم الفحص'",
+      'date(p.inspection_date) IS NOT NULL'
+    ];
+    const invalidDateConditions = [];
+    const invalidDateParams = [];
+    const params = [];
+    if (dateFrom) { conditions.push('date(p.inspection_date) >= ?'); params.push(dateFrom); }
+    if (dateTo) { conditions.push('date(p.inspection_date) <= ?'); params.push(dateTo); }
+    if (month) { conditions.push('substr(date(p.inspection_date), 1, 7) = ?'); params.push(month); }
+    if (lineId) {
+      conditions.push('p.line_id = ?'); params.push(lineId);
+      invalidDateConditions.push('p.line_id = ?'); invalidDateParams.push(lineId);
+    }
+    if (productId) {
+      conditions.push('p.product_id = ?'); params.push(productId);
+      invalidDateConditions.push('p.product_id = ?'); invalidDateParams.push(productId);
+    }
+    if (department) {
+      conditions.push('(p.department = ? OR l.department = ?)'); params.push(department, department);
+      invalidDateConditions.push('(p.department = ? OR l.department = ?)'); invalidDateParams.push(department, department);
+    }
+    if (reasonId) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM pallet_rejection_items selected_defect
+        WHERE selected_defect.pallet_id = p.id AND selected_defect.reason_id = ?
+      )`);
+      params.push(reasonId);
+      invalidDateConditions.push(`EXISTS (
+        SELECT 1 FROM pallet_rejection_items selected_defect
+        WHERE selected_defect.pallet_id = p.id AND selected_defect.reason_id = ?
+      )`);
+      invalidDateParams.push(reasonId);
+    }
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const dateExpr = 'date(p.inspection_date)';
+    const totals = this.db.prepare(`
+      SELECT COUNT(p.id) AS inspected_records,
+             COALESCE(SUM(p.inspected_quantity), 0) AS inspected_samples,
+             COALESCE(SUM(p.rejected_quantity), 0) AS rejected_samples,
+             MAX(p.updated_at) AS last_updated
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+    `).get(...params);
+    const invalidDateRecords = this.db.prepare(`
+      SELECT COUNT(p.id) AS count
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      WHERE p.inspection_status = 'تم الفحص'
+        AND date(p.inspection_date) IS NULL
+        ${invalidDateConditions.length ? `AND ${invalidDateConditions.join(' AND ')}` : ''}
+    `).get(...invalidDateParams).count;
+
+    const daily = this.db.prepare(`
+      SELECT ${dateExpr} AS date,
+             COUNT(p.id) AS inspected_records,
+             COALESCE(SUM(p.inspected_quantity), 0) AS inspected_samples,
+             COALESCE(SUM(p.rejected_quantity), 0) AS rejected_samples
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+      GROUP BY ${dateExpr}
+      ORDER BY date ASC
+    `).all(...params).map(row => ({
+      ...row,
+      rejection_rate: Number(row.inspected_samples) > 0
+        ? Number(((row.rejected_samples / row.inspected_samples) * 100).toFixed(2))
+        : null
+    }));
+
+    const dailyBreakdown = this.db.prepare(`
+      SELECT ${dateExpr} AS date, l.id AS line_id, l.name AS line_name,
+             prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             COUNT(p.id) AS inspected_records,
+             COALESCE(SUM(p.inspected_quantity), 0) AS inspected_samples,
+             COALESCE(SUM(p.rejected_quantity), 0) AS rejected_samples
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+      GROUP BY ${dateExpr}, l.id, l.name, prod.id, prod.name, prod.code
+      ORDER BY date ASC, l.line_number ASC, prod.name COLLATE NOCASE
+    `).all(...params);
+
+    const products = this.db.prepare(`
+      SELECT prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             COUNT(p.id) AS inspected_records,
+             COALESCE(SUM(p.inspected_quantity), 0) AS inspected_samples,
+             COALESCE(SUM(p.rejected_quantity), 0) AS rejected_samples
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+      GROUP BY prod.id, prod.name, prod.code
+      ORDER BY prod.name COLLATE NOCASE
+    `).all(...params).map(row => ({
+      ...row,
+      rejection_rate: Number(row.inspected_samples) > 0
+        ? Number(((row.rejected_samples / row.inspected_samples) * 100).toFixed(2))
+        : null
+    }));
+
+    const lineProducts = this.db.prepare(`
+      SELECT l.id AS line_id, l.line_number, l.name AS line_name,
+             prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             COUNT(p.id) AS inspected_records,
+             COALESCE(SUM(p.inspected_quantity), 0) AS inspected_samples,
+             COALESCE(SUM(p.rejected_quantity), 0) AS rejected_samples
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+      GROUP BY l.id, l.line_number, l.name, prod.id, prod.name, prod.code
+      ORDER BY l.line_number ASC, prod.name COLLATE NOCASE
+    `).all(...params).map(row => ({
+      ...row,
+      rejection_rate: Number(row.inspected_samples) > 0
+        ? Number(((row.rejected_samples / row.inspected_samples) * 100).toFixed(2))
+        : null
+    }));
+
+    const defects = this.db.prepare(`
+      SELECT rr.id AS reason_id, rr.name AS reason_name, rr.category,
+             COALESCE(SUM(pri.count), 0) AS occurrences
+      FROM pallet_rejection_items pri
+      JOIN pallets p ON p.id = pri.pallet_id
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      JOIN rejection_reasons rr ON rr.id = pri.reason_id
+      ${where}
+      ${reasonId ? 'AND rr.id = ?' : ''}
+      GROUP BY rr.id, rr.name, rr.category
+      ORDER BY occurrences DESC, rr.name COLLATE NOCASE
+    `).all(...(reasonId ? [...params, reasonId] : params));
+    const totalDefectOccurrences = defects.reduce((sum, defect) => sum + Number(defect.occurrences || 0), 0);
+    defects.forEach(defect => {
+      defect.share = totalDefectOccurrences > 0
+        ? Number(((defect.occurrences / totalDefectOccurrences) * 100).toFixed(2))
+        : null;
+    });
+
+    const defectRelations = this.db.prepare(`
+      SELECT pri.reason_id, prod.id AS product_id, prod.name AS product_name, prod.code AS product_code,
+             l.id AS line_id, l.line_number, l.name AS line_name,
+             SUM(pri.count) AS occurrences
+      FROM pallet_rejection_items pri
+      JOIN pallets p ON p.id = pri.pallet_id
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+      GROUP BY pri.reason_id, prod.id, prod.name, prod.code, l.id, l.line_number, l.name
+    `).all(...params);
+
+    const productDefects = this.db.prepare(`
+      SELECT prod.id AS product_id, pri.reason_id, rr.name AS reason_name, SUM(pri.count) AS occurrences
+      FROM pallet_rejection_items pri
+      JOIN pallets p ON p.id = pri.pallet_id
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      JOIN rejection_reasons rr ON rr.id = pri.reason_id
+      ${where}
+      GROUP BY prod.id, pri.reason_id, rr.name
+    `).all(...params);
+
+    const minimumSampleSize = 30;
+    const selectBest = rows => {
+      const eligible = rows.filter(row => Number(row.inspected_samples) >= minimumSampleSize && row.rejection_rate !== null);
+      if (!eligible.length) return [];
+      const bestRate = Math.min(...eligible.map(row => row.rejection_rate));
+      return eligible.filter(row => Math.abs(row.rejection_rate - bestRate) < 0.005);
+    };
+    const bestLines = selectBest(this.db.prepare(`
+      SELECT l.id AS line_id, l.line_number, l.name AS line_name,
+             COUNT(p.id) AS inspected_records,
+             COALESCE(SUM(p.inspected_quantity), 0) AS inspected_samples,
+             COALESCE(SUM(p.rejected_quantity), 0) AS rejected_samples
+      FROM pallets p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      ${where}
+      GROUP BY l.id, l.line_number, l.name
+    `).all(...params).map(row => ({
+      ...row,
+      rejection_rate: Number(row.inspected_samples) > 0
+        ? Number(((row.rejected_samples / row.inspected_samples) * 100).toFixed(2))
+        : null
+    })));
+    const bestProducts = selectBest(products);
+
+    const bestDefect = defects.length ? defects[0].occurrences : 0;
+    const leastDefect = defects.length ? defects[defects.length - 1].occurrences : 0;
+    const bestDefects = defects.filter(defect => Number(defect.occurrences) === Number(bestDefect));
+    const leastDefects = defects.filter(defect => Number(defect.occurrences) === Number(leastDefect));
+
+    return {
+      filters: { date_from: dateFrom, date_to: dateTo, month, line_id: lineId, product_id: productId, reason_id: reasonId },
+      totals: {
+        inspected_records: Number(totals.inspected_records || 0),
+        inspected_samples: Number(totals.inspected_samples || 0),
+        rejected_samples: Number(totals.rejected_samples || 0),
+        rejection_rate: Number(totals.inspected_samples) > 0
+          ? Number(((totals.rejected_samples / totals.inspected_samples) * 100).toFixed(2))
+          : null,
+        total_defect_occurrences: totalDefectOccurrences,
+        last_updated: totals.last_updated,
+        invalid_date_records: Number(invalidDateRecords || 0)
+      },
+      minimum_sample_size: minimumSampleSize,
+      best_lines: bestLines,
+      best_products: bestProducts,
+      most_frequent_defects: bestDefects,
+      least_frequent_defects: leastDefects,
+      daily,
+      daily_breakdown: dailyBreakdown,
+      products,
+      line_products: lineProducts,
+      defects,
+      defect_relations: defectRelations,
+      product_defects: productDefects
+    };
+  }
+
   // ==========================================
   // REPORTS
   // ==========================================
@@ -1179,6 +2731,46 @@ class QualityDB {
     return this.db.prepare('SELECT * FROM rejection_reasons WHERE id = ?').get(res.lastInsertRowid);
   }
 
+  createQuickRejectionReason(name, department, currentUserId, currentUserName) {
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName) throw new Error('اكتب اسم العيب أولاً.');
+    const normalizedDepartment = department === 'all' || department === null || department === undefined ? null : department;
+    if (normalizedDepartment !== null && !['home', 'seria'].includes(normalizedDepartment)) {
+      throw new Error('قسم العيب غير صالح.');
+    }
+    const existing = normalizedDepartment === null
+      ? this.db.prepare(`
+      SELECT id, department FROM rejection_reasons
+      WHERE name = ? COLLATE NOCASE AND is_active = 1
+      ORDER BY id LIMIT 1
+    `).get(normalizedName)
+      : this.db.prepare(`
+      SELECT id FROM rejection_reasons
+      WHERE name = ? COLLATE NOCASE AND (department = ? OR department IS NULL) AND is_active = 1
+    `).get(normalizedName, normalizedDepartment);
+    if (existing) {
+      if (normalizedDepartment === null && existing.department !== null) {
+        this.db.prepare('UPDATE rejection_reasons SET department = NULL WHERE id = ?').run(existing.id);
+        this.logAudit(currentUserId, currentUserName, 'UPDATE', 'rejection_reasons', existing.id, `مشاركة سبب العيب بين الجودة والهوالك: ${normalizedName}`);
+      }
+      return this.db.prepare('SELECT * FROM rejection_reasons WHERE id = ?').get(existing.id);
+    }
+
+    const codePrefix = `DEF-Q-${Date.now().toString(36).toUpperCase()}`;
+    let code = '';
+    let suffix = 1;
+    while (!code) {
+      const candidate = `${codePrefix}-${suffix++}`;
+      if (!this.db.prepare('SELECT id FROM rejection_reasons WHERE code = ?').get(candidate)) code = candidate;
+    }
+    const result = this.db.prepare(`
+      INSERT INTO rejection_reasons (code, name, category, is_active, department)
+      VALUES (?, ?, 'عام', 1, ?)
+    `).run(code, normalizedName, normalizedDepartment);
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'rejection_reasons', result.lastInsertRowid, `إضافة سبب عيب سريع: ${normalizedName}`);
+    return this.db.prepare('SELECT * FROM rejection_reasons WHERE id = ?').get(result.lastInsertRowid);
+  }
+
   deleteRejectionReason(id, currentUserId, currentUserName) {
     this.db.prepare('DELETE FROM rejection_reasons WHERE id = ?').run(id);
     this.logAudit(currentUserId, currentUserName, 'DELETE', 'rejection_reasons', id, `حذف سبب عيب معرّف: ${id}`);
@@ -1227,6 +2819,1253 @@ class QualityDB {
   deleteSavedFilter(id) {
     this.db.prepare('DELETE FROM saved_filters WHERE id = ?').run(id);
     return true;
+  }
+
+  getScrapReports(date = null) {
+    const query = date
+      ? this.db.prepare('SELECT * FROM scrap_reports WHERE report_date = ? ORDER BY id DESC')
+      : this.db.prepare('SELECT * FROM scrap_reports ORDER BY report_date DESC, id DESC');
+    const rows = date ? query.all(date) : query.all();
+    return rows.map(row => ({
+      ...row,
+      causes: JSON.parse(row.causes_json),
+      periods: JSON.parse(row.periods_json),
+      items: JSON.parse(row.items_json || '[]')
+    }));
+  }
+
+  getScrapReasons() {
+    return this.db.prepare('SELECT id, name FROM scrap_reasons ORDER BY name COLLATE NOCASE').all();
+  }
+
+  createScrapReason(name) {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) throw new Error('اكتب سبب الهالك.');
+    if (cleanName.length > 120) throw new Error('يجب ألا يتجاوز سبب الهالك 120 حرفًا.');
+    const existing = this.db.prepare('SELECT id FROM scrap_reasons WHERE name = ? COLLATE NOCASE').get(cleanName);
+    if (existing) throw new Error('سبب الهالك موجود بالفعل.');
+    const result = this.db.prepare('INSERT INTO scrap_reasons (name) VALUES (?)').run(cleanName);
+    return this.db.prepare('SELECT id, name FROM scrap_reasons WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  updateScrapReason(id, name) {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) throw new Error('اكتب سبب الهالك.');
+    if (cleanName.length > 120) throw new Error('يجب ألا يتجاوز سبب الهالك 120 حرفًا.');
+    const result = this.db.prepare(`
+      UPDATE scrap_reasons SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(cleanName, id);
+    if (!result.changes) throw new Error('سبب الهالك المطلوب غير موجود.');
+    return this.db.prepare('SELECT id, name FROM scrap_reasons WHERE id = ?').get(id);
+  }
+
+  deleteScrapReason(id) {
+    const result = this.db.prepare('DELETE FROM scrap_reasons WHERE id = ?').run(id);
+    if (!result.changes) throw new Error('سبب الهالك المطلوب غير موجود.');
+    return true;
+  }
+
+  saveScrapReport(data, id = null) {
+    if (!data.report_date || !/^\d{4}-\d{2}-\d{2}$/.test(data.report_date)) {
+      throw new Error('تاريخ التقرير غير صالح.');
+    }
+    if (!Array.isArray(data.causes) || !Array.isArray(data.periods)) {
+      throw new Error('بيانات أسباب وفترات التقرير غير صالحة.');
+    }
+    if (data.report_type && !['hourly', 'manual'].includes(data.report_type)) {
+      throw new Error('نوع تقرير الهالك غير صالح.');
+    }
+    const reportType = data.report_type || 'hourly';
+    const items = data.items === undefined ? [] : data.items;
+    if (!Array.isArray(items)) throw new Error('بيانات أصناف تقرير الهالك غير صالحة.');
+    if (reportType === 'manual') {
+      if (!items.length) throw new Error('أضف صنفًا واحدًا على الأقل لتقرير الهالك بدون فترات.');
+      for (const item of items) {
+        const quantity = Number(item.quantity);
+        if (!String(item.line_name || '').trim() || !String(item.product_name || '').trim()
+          || !String(item.reason_name || '').trim() || !Number.isSafeInteger(quantity) || quantity < 1) {
+          throw new Error('أكمل الخط والمنتج والسبب وأدخل كمية صحيحة لكل صنف.');
+        }
+      }
+    }
+
+    const values = [
+      data.report_date,
+      String(data.line_name || ''),
+      JSON.stringify(data.causes),
+      JSON.stringify(data.periods),
+      reportType,
+      JSON.stringify(items),
+      String(data.production_supervisor || ''),
+      String(data.quality_supervisor || ''),
+      String(data.recommendation || '')
+    ];
+
+    if (id) {
+      const result = this.db.prepare(`
+        UPDATE scrap_reports
+        SET report_date = ?, line_name = ?, causes_json = ?, periods_json = ?, report_type = ?, items_json = ?,
+            production_supervisor = ?, quality_supervisor = ?, recommendation = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(...values, id);
+      if (!result.changes) throw new Error('تقرير الهالك المطلوب غير موجود.');
+      return this.getScrapReportsById(id);
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO scrap_reports (
+        report_date, line_name, causes_json, periods_json, report_type, items_json,
+        production_supervisor, quality_supervisor, recommendation
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(...values);
+    return this.getScrapReportsById(result.lastInsertRowid);
+  }
+
+  getScrapReportsById(id) {
+    const row = this.db.prepare('SELECT * FROM scrap_reports WHERE id = ?').get(id);
+    if (!row) return null;
+    return {
+      ...row,
+      causes: JSON.parse(row.causes_json),
+      periods: JSON.parse(row.periods_json),
+      items: JSON.parse(row.items_json || '[]')
+    };
+  }
+
+  deleteScrapReport(id) {
+    const result = this.db.prepare('DELETE FROM scrap_reports WHERE id = ?').run(id);
+    if (!result.changes) throw new Error('تقرير الهالك المطلوب غير موجود.');
+    return true;
+  }
+
+  getSecondSortHandoverReports(date = null) {
+    const rows = date
+      ? this.db.prepare('SELECT * FROM second_sort_handover_reports WHERE report_date = ? ORDER BY id DESC').all(date)
+      : this.db.prepare('SELECT * FROM second_sort_handover_reports ORDER BY report_date DESC, id DESC').all();
+    return rows.map(row => {
+      const item = JSON.parse(row.item_json);
+      item.image_data = '';
+      item.images = [];
+      return { ...row, item };
+    });
+  }
+
+  getSecondSortHandoverReportById(id) {
+    const row = this.db.prepare('SELECT * FROM second_sort_handover_reports WHERE id = ?').get(id);
+    if (!row) return null;
+    const item = JSON.parse(row.item_json);
+    // Ensure images array exists (backward compatibility with single image_data)
+    if (!Array.isArray(item.images)) {
+      item.images = item.image_data ? [item.image_data] : [];
+    }
+    return { ...row, item };
+  }
+
+  saveSecondSortHandoverReport(data, id = null) {
+    const parsedDate = Date.parse(`${data.report_date}T00:00:00Z`);
+    if (!data.report_date || !/^\d{4}-\d{2}-\d{2}$/.test(data.report_date)
+      || Number.isNaN(parsedDate)
+      || new Date(parsedDate).toISOString().slice(0, 10) !== data.report_date) {
+      throw new Error('تاريخ التقرير غير صالح.');
+    }
+    const item = data.item;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('بيانات الصنف غير صالحة.');
+    }
+
+    // Process images array (supports multiple images up to 5 images, plus legacy image_data)
+    let images = [];
+    if (Array.isArray(item.images)) {
+      images = item.images.map(img => String(img || '').trim()).filter(Boolean);
+    } else if (item.image_data) {
+      images = [String(item.image_data).trim()];
+    }
+
+    if (images.length > 5) {
+      throw new Error('يمكنك إضافة حتى 5 صور كحد أقصى.');
+    }
+
+    for (const img of images) {
+      if (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(img) || img.length > 2_500_000) {
+        throw new Error('إحدى الصور غير صالحة أو حجمها أكبر من المسموح.');
+      }
+    }
+
+    let signatures = [];
+    if (Array.isArray(item.signatures)) {
+      signatures = item.signatures.slice(0, 8).map(signature => ({
+        title: String(signature?.title || '').trim().slice(0, 80),
+        name: String(signature?.name || '').trim().slice(0, 80)
+      })).filter(signature => signature.title || signature.name);
+    } else {
+      signatures = [
+        { title: 'توقيع مشرف الهوالك', name: '' },
+        { title: 'توقيع مشرف الفرز الثاني والهالك', name: '' }
+      ];
+    }
+
+    const productId = item.product_id === '' || item.product_id === null || item.product_id === undefined
+      ? null
+      : Number(item.product_id);
+    if (productId !== null && (!Number.isSafeInteger(productId) || productId <= 0)) {
+      throw new Error('المنتج المحدد غير صالح.');
+    }
+    const selectedProduct = productId === null ? null : this.getProductById(productId);
+    if (productId !== null && !selectedProduct) {
+      throw new Error('المنتج المحدد غير موجود.');
+    }
+
+    const cleanItem = {
+      product_id: productId,
+      product_model: String(selectedProduct?.name || item.product_model || '').trim(),
+      problem: String(item.problem || '').trim(),
+      images: images,
+      image_data: images[0] || '', // legacy compatibility
+      discount_percent: item.discount_percent === '' || item.discount_percent === null || item.discount_percent === undefined
+        ? null
+        : Number(item.discount_percent),
+      quantity: item.quantity === '' || item.quantity === null || item.quantity === undefined
+        ? null
+        : Number(item.quantity),
+      font_scale: item.font_scale === '' || item.font_scale === null || item.font_scale === undefined
+        ? 1
+        : Number(item.font_scale),
+      approval: String(item.approval || '').trim(),
+      signatures
+    };
+    if (!cleanItem.product_model || !cleanItem.problem || !Number.isSafeInteger(cleanItem.quantity) || cleanItem.quantity < 0) {
+      throw new Error('يرجى اختيار المنتج وإدخال المشكلة والكمية الصحيحة.');
+    }
+    if (cleanItem.discount_percent !== null
+      && (!Number.isFinite(cleanItem.discount_percent) || cleanItem.discount_percent < 0 || cleanItem.discount_percent > 100)) {
+      throw new Error('نسبة الخصم يجب أن تكون بين 0 و100.');
+    }
+    if (!Number.isFinite(cleanItem.font_scale) || cleanItem.font_scale < 0.8 || cleanItem.font_scale > 1.5) {
+      throw new Error('حجم خط التقرير يجب أن يكون بين 80٪ و150٪.');
+    }
+    const values = [data.report_date, JSON.stringify(cleanItem)];
+    if (id) {
+      const result = this.db.prepare(`
+        UPDATE second_sort_handover_reports
+        SET report_date = ?, item_json = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(...values, id);
+      if (!result.changes) throw new Error('تقرير تسليم الفرز الثاني غير موجود.');
+      return this.getSecondSortHandoverReportById(id);
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO second_sort_handover_reports (report_date, item_json) VALUES (?, ?)
+    `).run(...values);
+    return this.getSecondSortHandoverReportById(result.lastInsertRowid);
+  }
+
+  deleteSecondSortHandoverReport(id) {
+    const result = this.db.prepare('DELETE FROM second_sort_handover_reports WHERE id = ?').run(id);
+    if (!result.changes) throw new Error('تقرير تسليم الفرز الثاني غير موجود.');
+    return true;
+  }
+
+  getSecondSortReasons() {
+    return this.db.prepare('SELECT id, name FROM second_sort_reasons ORDER BY name COLLATE NOCASE').all();
+  }
+
+  createSecondSortReason(name) {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) throw new Error('اكتب سبب الفرز الثاني.');
+    if (cleanName.length > 120) throw new Error('يجب ألا يتجاوز سبب الفرز الثاني 120 حرفًا.');
+    const existing = this.db.prepare('SELECT id, name FROM second_sort_reasons WHERE name = ? COLLATE NOCASE').get(cleanName);
+    if (existing) throw new Error('سبب الفرز الثاني موجود بالفعل.');
+    const result = this.db.prepare('INSERT INTO second_sort_reasons (name) VALUES (?)').run(cleanName);
+    return this.db.prepare('SELECT id, name FROM second_sort_reasons WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  getSecondSortReturnReports(date = null) {
+    const rows = date
+      ? this.db.prepare('SELECT * FROM second_sort_returns_to_first_sort WHERE report_date = ? ORDER BY id DESC').all(date)
+      : this.db.prepare('SELECT * FROM second_sort_returns_to_first_sort ORDER BY report_date DESC, id DESC').all();
+    return rows.map(row => ({ ...row, item: JSON.parse(row.item_json) }));
+  }
+
+  getSecondSortReturnReportById(id) {
+    const row = this.db.prepare('SELECT * FROM second_sort_returns_to_first_sort WHERE id = ?').get(id);
+    return row ? { ...row, item: JSON.parse(row.item_json) } : null;
+  }
+
+  saveSecondSortReturnReport(data, id = null) {
+    const reportDate = String(data.report_date || '');
+    const parsedDate = Date.parse(`${reportDate}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)
+      || Number.isNaN(parsedDate)
+      || new Date(parsedDate).toISOString().slice(0, 10) !== reportDate) {
+      throw new Error('تاريخ التقرير غير صالح.');
+    }
+    const item = data.item;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('بيانات التقرير غير صالحة.');
+    }
+
+    const productId = Number(item.product_id);
+    if (!Number.isSafeInteger(productId) || productId <= 0) {
+      throw new Error('يرجى اختيار منتج صحيح من القائمة.');
+    }
+    const product = this.getProductById(productId);
+    if (!product) throw new Error('المنتج المحدد غير موجود.');
+
+    const quantityText = typeof item.quantity === 'string' ? item.quantity.trim() : item.quantity;
+    const quantity = typeof quantityText === 'number'
+      ? quantityText
+      : typeof quantityText === 'string' && /^\d+$/.test(quantityText)
+        ? Number(quantityText)
+        : NaN;
+    if (!Number.isSafeInteger(quantity) || quantity < 0) {
+      throw new Error('الكمية يجب أن تكون عددًا صحيحًا غير سالب.');
+    }
+    const signatures = Array.isArray(item.signatures)
+      ? item.signatures.slice(0, 8).map(signature => ({
+        title: String(signature?.title || '').trim().slice(0, 80),
+        name: String(signature?.name || '').trim().slice(0, 80)
+      })).filter(signature => signature.title || signature.name)
+      : [
+        { title: 'توقيع مشرف الفرز الأول', name: '' },
+        { title: 'توقيع مشرف الفرز الثاني', name: '' }
+      ];
+    const cleanItem = {
+      product_id: productId,
+      product_name: product.name,
+      quantity,
+      notes: String(item.notes || '').trim().slice(0, 1000),
+      signatures
+    };
+    const values = [reportDate, JSON.stringify(cleanItem)];
+    if (id) {
+      const result = this.db.prepare(`
+        UPDATE second_sort_returns_to_first_sort
+        SET report_date = ?, item_json = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(...values, id);
+      if (!result.changes) throw new Error('تقرير إرجاع الفرز غير موجود.');
+      return this.getSecondSortReturnReportById(id);
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO second_sort_returns_to_first_sort (report_date, item_json) VALUES (?, ?)
+    `).run(...values);
+    return this.getSecondSortReturnReportById(result.lastInsertRowid);
+  }
+
+  deleteSecondSortReturnReport(id) {
+    const result = this.db.prepare('DELETE FROM second_sort_returns_to_first_sort WHERE id = ?').run(id);
+    if (!result.changes) throw new Error('تقرير إرجاع الفرز غير موجود.');
+    return true;
+  }
+
+  // ==========================================
+  // HOURLY SAMPLE SLOTS API
+  // ==========================================
+  getLineSampleSlots(activeOnly = true) {
+    const where = activeOnly ? 'WHERE is_active = 1' : '';
+    return this.db.prepare(`
+      SELECT id, start_time, end_time, display_order, is_active,
+             start_time || '–' || end_time AS slot_name
+      FROM line_sample_slots
+      ${where}
+      ORDER BY start_time ASC, display_order ASC, id ASC
+    `).all();
+  }
+
+  createLineSampleSlot(data, currentUserId, currentUserName) {
+    const startTime = String(data.start_time || '');
+    const endTime = String(data.end_time || '');
+    const validTime = value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+    if (!validTime(startTime) || !validTime(endTime) || endTime <= startTime) {
+      throw new Error('حدد وقت بداية ونهاية صحيحين، ويجب أن تكون النهاية بعد البداية.');
+    }
+    if (this.db.prepare(`
+      SELECT id FROM line_sample_slots
+      WHERE is_active = 1 AND start_time = ? AND end_time = ?
+    `).get(startTime, endTime)) {
+      throw new Error('فترة السحب هذه مضافة بالفعل.');
+    }
+    if (this.db.prepare(`
+      SELECT id FROM line_sample_slots
+      WHERE is_active = 1 AND start_time < ? AND end_time > ?
+    `).get(endTime, startTime)) {
+      throw new Error('فترة السحب تتداخل مع فترة أخرى مضافة.');
+    }
+    const order = this.db.prepare('SELECT COALESCE(MAX(display_order), 0) AS max_order FROM line_sample_slots WHERE is_active = 1').get().max_order;
+    const result = this.db.prepare(`
+      INSERT INTO line_sample_slots (start_time, end_time, display_order)
+      VALUES (?, ?, ?)
+    `).run(startTime, endTime, order + 1);
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'line_sample_slots', result.lastInsertRowid, `إضافة فترة سحب عينات للخطوط: ${startTime}–${endTime}`);
+    return this.getLineSampleSlots(false).find(slot => Number(slot.id) === Number(result.lastInsertRowid));
+  }
+
+  deleteLineSampleSlot(id, currentUserId, currentUserName) {
+    const slot = this.db.prepare('SELECT start_time, end_time FROM line_sample_slots WHERE id = ? AND is_active = 1').get(id);
+    if (!slot) throw new Error('فترة السحب غير موجودة.');
+    this.db.prepare('UPDATE line_sample_slots SET is_active = 0 WHERE id = ?').run(id);
+    this.logAudit(currentUserId, currentUserName, 'DELETE', 'line_sample_slots', id, `إيقاف فترة سحب عينات للخطوط: ${slot.start_time}–${slot.end_time}`);
+    return true;
+  }
+
+  getLineSamplePeriodStatuses(date) {
+    const parsedDate = Date.parse(`${date || ''}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')
+      || Number.isNaN(parsedDate)
+      || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
+      throw new Error('تاريخ الملخص غير صالح.');
+    }
+    return this.db.prepare(`
+      SELECT date, slot_id, line_id, is_stopped, no_sample_reason
+      FROM line_sample_period_statuses
+      WHERE date = ?
+    `).all(date);
+  }
+
+  saveLineSamplePeriodStatus(data, currentUserId, currentUserName) {
+    if (!data || typeof data !== 'object') throw new Error('بيانات حالة الخط غير صالحة.');
+    const date = String(data.date || '');
+    const parsedDate = Date.parse(`${date}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)
+      || Number.isNaN(parsedDate)
+      || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
+      throw new Error('تاريخ الملخص غير صالح.');
+    }
+    const slotId = Number(data.slot_id);
+    const lineId = Number(data.line_id);
+    if (!Number.isSafeInteger(slotId) || slotId < 1 || !Number.isSafeInteger(lineId) || lineId < 1) {
+      throw new Error('حدد فترة وخط إنتاج صحيحين.');
+    }
+    if (![true, false, 0, 1, '0', '1'].includes(data.is_stopped)) {
+      throw new Error('حدد حالة الخط: يعمل أو متوقف.');
+    }
+    const isStopped = data.is_stopped === true || data.is_stopped === 1 || data.is_stopped === '1' ? 1 : 0;
+    const reason = String(data.no_sample_reason || '').trim();
+    if (reason.length > 500) throw new Error('سبب عدم السحب يجب ألا يتجاوز 500 حرف.');
+    if (!this.db.prepare('SELECT id FROM production_lines WHERE id = ?').get(lineId)) {
+      throw new Error('خط الإنتاج المحدد غير موجود.');
+    }
+    if (!this.db.prepare('SELECT id FROM line_sample_slots WHERE id = ?').get(slotId)) {
+      throw new Error('فترة السحب المحددة غير موجودة.');
+    }
+    const hasPull = this.db.prepare(`
+      SELECT 1 FROM line_sample_pulls
+      WHERE date = ? AND slot_id = ? AND line_id = ?
+      LIMIT 1
+    `).get(date, slotId, lineId);
+    if (!hasPull && !reason) throw new Error('اكتب سبب عدم السحب لهذا الخط والفترة.');
+
+    this.db.prepare(`
+      INSERT INTO line_sample_period_statuses (date, slot_id, line_id, is_stopped, no_sample_reason, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(date, slot_id, line_id) DO UPDATE SET
+        is_stopped = excluded.is_stopped,
+        no_sample_reason = excluded.no_sample_reason,
+        updated_by = excluded.updated_by,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(date, slotId, lineId, isStopped, reason, currentUserId || null);
+    this.logAudit(
+      currentUserId,
+      currentUserName,
+      'UPDATE',
+      'line_sample_period_statuses',
+      lineId,
+      `تسجيل حالة الخط لفترة سحب ${slotId}: ${isStopped ? 'متوقف' : 'يعمل'}${reason ? `، سبب عدم السحب: ${reason}` : ''}`
+    );
+    return this.db.prepare(`
+      SELECT date, slot_id, line_id, is_stopped, no_sample_reason
+      FROM line_sample_period_statuses
+      WHERE date = ? AND slot_id = ? AND line_id = ?
+    `).get(date, slotId, lineId);
+  }
+
+  getHourlySlots(department = null) {
+    let sql = 'SELECT * FROM hourly_sample_slots WHERE is_active = 1';
+    const params = [];
+    if (department && department !== 'all') {
+      sql += ' AND (department = ? OR department = "all")';
+      params.push(department);
+    }
+    sql += ' ORDER BY display_order ASC, start_time ASC';
+    return this.db.prepare(sql).all(...params);
+  }
+
+  createHourlySlot(data, currentUserId, currentUserName) {
+    const maxOrder = this.db.prepare('SELECT COALESCE(MAX(display_order), 0) as m FROM hourly_sample_slots').get().m;
+    const stmt = this.db.prepare(`
+      INSERT INTO hourly_sample_slots (slot_name, start_time, end_time, display_order, department, is_active)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      data.slot_name,
+      data.start_time,
+      data.end_time,
+      data.display_order ? parseInt(data.display_order, 10) : maxOrder + 1,
+      data.department || 'all',
+      data.is_active ?? 1
+    );
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'hourly_sample_slots', res.lastInsertRowid, `إضافة فترة سحب عينات بالساعة: ${data.slot_name}`);
+    return this.db.prepare('SELECT * FROM hourly_sample_slots WHERE id = ?').get(res.lastInsertRowid);
+  }
+
+  updateHourlySlot(id, data, currentUserId, currentUserName) {
+    const stmt = this.db.prepare(`
+      UPDATE hourly_sample_slots
+      SET slot_name = ?, start_time = ?, end_time = ?, display_order = ?, department = ?, is_active = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      data.slot_name,
+      data.start_time,
+      data.end_time,
+      parseInt(data.display_order || 1, 10),
+      data.department || 'all',
+      data.is_active ?? 1,
+      id
+    );
+    this.logAudit(currentUserId, currentUserName, 'UPDATE', 'hourly_sample_slots', id, `تعديل فترة سحب عينات: ${data.slot_name}`);
+    return this.db.prepare('SELECT * FROM hourly_sample_slots WHERE id = ?').get(id);
+  }
+
+  deleteHourlySlot(id, currentUserId, currentUserName) {
+    this.db.prepare('DELETE FROM hourly_sample_slots WHERE id = ?').run(id);
+    this.logAudit(currentUserId, currentUserName, 'DELETE', 'hourly_sample_slots', id, `حذف فترة سحب عينات رقم: ${id}`);
+    return true;
+  }
+
+  getInspectionStations() {
+    return this.db.prepare(`
+      SELECT s.*, i.name AS inspector_name
+      FROM inspection_stations s
+      LEFT JOIN quality_inspectors i ON i.id = s.default_inspector_id
+      WHERE s.is_active = 1
+      ORDER BY s.id ASC
+    `).all();
+  }
+
+  createInspectionStation(name, inspectorId, currentUserId, currentUserName) {
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName) throw new Error('اسم محطة الفحص مطلوب.');
+    const parsedInspectorId = Number(inspectorId);
+    if (!Number.isInteger(parsedInspectorId) || parsedInspectorId < 1) {
+      throw new Error('اختر المراقب المسؤول عن محطة الفحص.');
+    }
+    const inspector = this.db.prepare('SELECT id, name FROM quality_inspectors WHERE id = ? AND is_active = 1').get(parsedInspectorId);
+    if (!inspector) throw new Error('المراقب المحدد غير متاح. حدّث الصفحة ثم حاول مرة أخرى.');
+    if (this.db.prepare('SELECT id FROM inspection_stations WHERE name = ? AND is_active = 1').get(normalizedName)) {
+      throw new Error('اسم محطة الفحص مسجل بالفعل.');
+    }
+    const result = this.db.prepare('INSERT INTO inspection_stations (name, default_inspector_id) VALUES (?, ?)').run(normalizedName, parsedInspectorId);
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'inspection_stations', result.lastInsertRowid, `إضافة محطة فحص: ${normalizedName}، المراقب: ${inspector.name}`);
+    return this.getInspectionStations().find(station => Number(station.id) === Number(result.lastInsertRowid));
+  }
+
+  updateInspectionStation(id, inspectorId, currentUserId, currentUserName) {
+    const stationId = Number(id);
+    const parsedInspectorId = Number(inspectorId);
+    const station = this.db.prepare('SELECT id, name FROM inspection_stations WHERE id = ? AND is_active = 1').get(stationId);
+    if (!station) throw new Error('محطة الفحص غير موجودة.');
+    if (!Number.isInteger(parsedInspectorId) || parsedInspectorId < 1) {
+      throw new Error('اختر المراقب المسؤول عن محطة الفحص.');
+    }
+    const inspector = this.db.prepare('SELECT id, name FROM quality_inspectors WHERE id = ? AND is_active = 1').get(parsedInspectorId);
+    if (!inspector) throw new Error('المراقب المحدد غير متاح. حدّث الصفحة ثم حاول مرة أخرى.');
+    this.db.prepare('UPDATE inspection_stations SET default_inspector_id = ? WHERE id = ?').run(parsedInspectorId, stationId);
+    this.logAudit(currentUserId, currentUserName, 'UPDATE', 'inspection_stations', stationId, `تعديل مراقب محطة الفحص ${station.name}: ${inspector.name}`);
+    return this.getInspectionStations().find(item => Number(item.id) === stationId);
+  }
+
+  deleteInspectionStation(id, currentUserId, currentUserName) {
+    const station = this.db.prepare('SELECT name FROM inspection_stations WHERE id = ? AND is_active = 1').get(id);
+    if (!station) throw new Error('محطة الفحص غير موجودة.');
+    this.db.prepare('UPDATE inspection_stations SET is_active = 0 WHERE id = ?').run(id);
+    this.logAudit(currentUserId, currentUserName, 'DELETE', 'inspection_stations', id, `إيقاف محطة فحص: ${station.name}`);
+    return true;
+  }
+
+  getLineSamplePulls(filters = {}) {
+    let sql = `
+      SELECT p.*, l.line_number, l.name AS line_name, prod.name AS product_name,
+             s.name AS station_name, i.name AS inspector_name,
+             ai.name AS additional_inspector_name,
+             COALESCE(slot.start_time || '–' || slot.end_time, p.start_time || '–' || p.end_time) AS slot_name,
+             (SELECT COALESCE(SUM(d.count), 0) FROM line_sample_pull_defects d WHERE d.pull_id = p.id) AS total_defect_count
+      FROM line_sample_pulls p
+      JOIN production_lines l ON l.id = p.line_id
+      JOIN products prod ON prod.id = p.product_id
+      JOIN inspection_stations s ON s.id = p.station_id
+      JOIN quality_inspectors i ON i.id = p.inspector_id
+      LEFT JOIN quality_inspectors ai ON ai.id = p.additional_inspector_id
+      LEFT JOIN line_sample_slots slot ON slot.id = p.slot_id
+      WHERE 1 = 1
+    `;
+    const params = [];
+    if (filters.date) { sql += ' AND p.date = ?'; params.push(filters.date); }
+    if (filters.slot_id) { sql += ' AND p.slot_id = ?'; params.push(Number.parseInt(filters.slot_id, 10)); }
+    if (filters.line_id) { sql += ' AND p.line_id = ?'; params.push(Number.parseInt(filters.line_id, 10)); }
+    if (filters.status) { sql += ' AND p.status = ?'; params.push(filters.status); }
+    if (filters.department && filters.department !== 'all') {
+      sql += ' AND l.department = ?';
+      params.push(filters.department);
+    }
+    sql += ' ORDER BY p.date DESC, p.start_time DESC, p.id DESC';
+    const pulls = this.db.prepare(sql).all(...params);
+    const getDefects = this.db.prepare(`
+      SELECT d.reason_id, r.name AS reason_name, d.count, d.notes
+      FROM line_sample_pull_defects d
+      JOIN rejection_reasons r ON r.id = d.reason_id
+      WHERE d.pull_id = ?
+      ORDER BY d.id ASC
+    `);
+    return pulls.map(pull => ({ ...pull, defects: getDefects.all(pull.id) }));
+  }
+
+  validateAdditionalPullInspector(data, primaryInspectorId, totalSamples) {
+    const rawInspectorId = data.additional_inspector_id;
+    const rawSampleCount = data.additional_sample_count;
+    const inspectorId = rawInspectorId == null || rawInspectorId === '' ? null : Number(rawInspectorId);
+    const sampleCount = rawSampleCount == null || rawSampleCount === '' ? 0 : Number(rawSampleCount);
+    if (inspectorId === null && sampleCount === 0) {
+      return { inspectorId: null, sampleCount: 0 };
+    }
+    if (!Number.isInteger(inspectorId) || inspectorId < 1) {
+      throw new Error('اختر المراقب الإضافي أو اترك عدد عيناته صفرًا.');
+    }
+    if (inspectorId === Number(primaryInspectorId)) {
+      throw new Error('يجب اختيار مراقب إضافي مختلف عن المراقب الأساسي.');
+    }
+    if (!Number.isInteger(sampleCount) || sampleCount < 1 || sampleCount > totalSamples) {
+      throw new Error('عدد عينات المراقب الإضافي يجب أن يكون من 1 إلى إجمالي عينات السحبة.');
+    }
+    const inspector = this.db.prepare('SELECT id FROM quality_inspectors WHERE id = ? AND is_active = 1').get(inspectorId);
+    if (!inspector) throw new Error('المراقب الإضافي غير متاح. حدّث الصفحة ثم حاول مرة أخرى.');
+    return { inspectorId, sampleCount };
+  }
+
+  createLineSamplePull(data, currentUserId, currentUserName) {
+    const isPositiveId = value => Number.isInteger(Number(value)) && Number(value) > 0;
+    const parsedDate = data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)
+      ? new Date(`${data.date}T00:00:00.000Z`)
+      : null;
+    if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== data.date) {
+      throw new Error('تاريخ السحب غير صالح.');
+    }
+    if (![data.slot_id, data.line_id, data.product_id, data.station_id, data.inspector_id].every(isPositiveId)) {
+      throw new Error('يرجى اختيار فترة السحب والخط والمنتج ومحطة الفحص والمراقب.');
+    }
+    const sampleCount = Number(data.sample_count);
+    if (!Number.isInteger(sampleCount) || sampleCount < 1) throw new Error('عدد العينات يجب أن يكون عددًا صحيحًا أكبر من صفر.');
+    const additional = this.validateAdditionalPullInspector(data, data.inspector_id, sampleCount);
+
+    const slot = this.db.prepare('SELECT id, start_time, end_time FROM line_sample_slots WHERE id = ? AND is_active = 1').get(Number(data.slot_id));
+    const station = this.db.prepare('SELECT id FROM inspection_stations WHERE id = ? AND is_active = 1').get(Number(data.station_id));
+    const inspector = this.db.prepare('SELECT id FROM quality_inspectors WHERE id = ? AND is_active = 1').get(Number(data.inspector_id));
+    const line = this.db.prepare('SELECT id, department FROM production_lines WHERE id = ?').get(Number(data.line_id));
+    const product = this.db.prepare('SELECT id, department FROM products WHERE id = ?').get(Number(data.product_id));
+    if (!slot || !station || !inspector || !line || !product) throw new Error('أحد الاختيارات لم يعد متاحًا. حدّث الصفحة ثم حاول مرة أخرى.');
+    if (line.department && product.department && line.department !== product.department) {
+      throw new Error('المنتج المختار لا يتبع قسم الخط المحدد.');
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO line_sample_pulls (
+        date, start_time, end_time, slot_id, line_id, product_id, station_id,
+        inspector_id, additional_inspector_id, sample_count, additional_sample_count, status, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(
+      data.date, slot.start_time, slot.end_time, Number(data.slot_id), Number(data.line_id),
+      Number(data.product_id), Number(data.station_id), Number(data.inspector_id),
+      additional.inspectorId, sampleCount, additional.sampleCount, currentUserId || null
+    );
+    this.logAudit(currentUserId, currentUserName, 'CREATE', 'line_sample_pulls', result.lastInsertRowid, `تسجيل سحبة خط رقم ${result.lastInsertRowid} (${sampleCount} عينة)`);
+    return this.getLineSamplePulls({}).find(pull => Number(pull.id) === Number(result.lastInsertRowid));
+  }
+
+  completeLineSamplePull(id, defects, palletRejected, currentUserId, currentUserName) {
+    if (!Array.isArray(defects)) throw new Error('بيانات العيوب غير صالحة.');
+    if (![true, false, 0, 1, '0', '1'].includes(palletRejected)) {
+      throw new Error('حدد ما إذا كانت البالتة مرفوضة أم مقبولة.');
+    }
+    const pull = this.db.prepare('SELECT id, status FROM line_sample_pulls WHERE id = ?').get(id);
+    if (!pull) throw new Error('سحبة العينات غير موجودة.');
+    if (pull.status === 'completed') throw new Error('تم إنهاء فحص هذه السحبة بالفعل.');
+    const rejected = palletRejected === true || palletRejected === 1 || palletRejected === '1';
+
+    const insertDefect = this.db.prepare(`
+      INSERT INTO line_sample_pull_defects (pull_id, reason_id, count, notes)
+      VALUES (?, ?, ?, ?)
+    `);
+    const updatePull = this.db.prepare(`
+      UPDATE line_sample_pulls
+      SET status = 'completed', defect_count = ?, pallet_rejected = ?, completed_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'pending'
+    `);
+    const totalDefects = defects.reduce((sum, defect) => sum + Number(defect.count || 0), 0);
+
+    this.db.exec('BEGIN');
+    try {
+      const update = updatePull.run(totalDefects, Number(rejected), id);
+      if (!update.changes) throw new Error('تم إنهاء فحص هذه السحبة بالفعل.');
+      for (const defect of defects) {
+        const reasonId = Number(defect.reason_id);
+        const count = Number(defect.count);
+        if (!Number.isInteger(reasonId) || reasonId < 1 || !Number.isInteger(count) || count < 1) {
+          throw new Error('سبب العيب وعدده غير صالحين.');
+        }
+        const reason = this.db.prepare('SELECT id FROM rejection_reasons WHERE id = ? AND is_active = 1').get(reasonId);
+        if (!reason) throw new Error('أحد أسباب العيوب لم يعد متاحًا. حدّث الصفحة ثم حاول مرة أخرى.');
+        insertDefect.run(id, reasonId, count, String(defect.notes || '').trim() || null);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+
+    this.logAudit(currentUserId, currentUserName, 'COMPLETE', 'line_sample_pulls', id, `إنهاء فحص سحبة عينات (${totalDefects} عيب، البالتة ${rejected ? 'مرفوضة' : 'مقبولة'})`);
+    return this.getLineSamplePulls({}).find(item => Number(item.id) === Number(id));
+  }
+
+  updateLineSamplePull(id, data, currentUserId, currentUserName) {
+    const pullId = Number(id);
+    const existing = this.db.prepare('SELECT id, status FROM line_sample_pulls WHERE id = ?').get(pullId);
+    if (!existing) throw new Error('سحبة العينات غير موجودة.');
+
+    const isPositiveId = value => Number.isInteger(Number(value)) && Number(value) > 0;
+    const parsedDate = data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)
+      ? new Date(`${data.date}T00:00:00.000Z`)
+      : null;
+    if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== data.date) {
+      throw new Error('تاريخ السحب غير صالح.');
+    }
+    if (![data.slot_id, data.line_id, data.product_id, data.station_id, data.inspector_id].every(isPositiveId)) {
+      throw new Error('يرجى اختيار فترة السحب والخط والمنتج ومحطة الفحص والمراقب.');
+    }
+    const sampleCount = Number(data.sample_count);
+    if (!Number.isInteger(sampleCount) || sampleCount < 1) throw new Error('عدد العينات يجب أن يكون عددًا صحيحًا أكبر من صفر.');
+    const additional = this.validateAdditionalPullInspector(data, data.inspector_id, sampleCount);
+
+    const slot = this.db.prepare('SELECT id, start_time, end_time FROM line_sample_slots WHERE id = ? AND is_active = 1').get(Number(data.slot_id));
+    const station = this.db.prepare('SELECT id FROM inspection_stations WHERE id = ? AND is_active = 1').get(Number(data.station_id));
+    const inspector = this.db.prepare('SELECT id FROM quality_inspectors WHERE id = ? AND is_active = 1').get(Number(data.inspector_id));
+    const line = this.db.prepare('SELECT id, department FROM production_lines WHERE id = ?').get(Number(data.line_id));
+    const product = this.db.prepare('SELECT id, department FROM products WHERE id = ?').get(Number(data.product_id));
+    if (!slot || !station || !inspector || !line || !product) {
+      throw new Error('أحد الاختيارات لم يعد متاحًا. حدّث الصفحة ثم حاول مرة أخرى.');
+    }
+    if (line.department && product.department && line.department !== product.department) {
+      throw new Error('المنتج المختار لا يتبع قسم الخط المحدد.');
+    }
+
+    const defects = data.defects === undefined ? [] : data.defects;
+    if (!Array.isArray(defects)) throw new Error('بيانات العيوب غير صالحة.');
+    if (data.pallet_rejected !== undefined && ![true, false, 0, 1, '0', '1'].includes(data.pallet_rejected)) {
+      throw new Error('حالة رفض البالتة غير صالحة.');
+    }
+    const palletRejected = data.pallet_rejected === undefined
+      ? null
+      : Number(data.pallet_rejected === true || data.pallet_rejected === 1 || data.pallet_rejected === '1');
+    const normalizedDefects = defects.filter(defect => defect.reason_id !== '' && defect.reason_id != null);
+    if (existing.status !== 'completed' && normalizedDefects.length) {
+      throw new Error('لا يمكن تسجيل العيوب قبل إنهاء فحص السحبة.');
+    }
+    const totalDefects = normalizedDefects.reduce((sum, defect) => sum + Number(defect.count || 0), 0);
+    for (const defect of normalizedDefects) {
+      const reasonId = Number(defect.reason_id);
+      const count = Number(defect.count);
+      if (!Number.isInteger(reasonId) || reasonId < 1 || !Number.isInteger(count) || count < 1) {
+        throw new Error('سبب العيب وعدده غير صالحين.');
+      }
+      if (!this.db.prepare('SELECT id FROM rejection_reasons WHERE id = ? AND is_active = 1').get(reasonId)) {
+        throw new Error('أحد أسباب العيوب لم يعد متاحًا. حدّث الصفحة ثم حاول مرة أخرى.');
+      }
+    }
+
+    const updatePull = this.db.prepare(`
+      UPDATE line_sample_pulls
+      SET date = ?, start_time = ?, end_time = ?, slot_id = ?, line_id = ?,
+          product_id = ?, station_id = ?, inspector_id = ?, additional_inspector_id = ?,
+          sample_count = ?, additional_sample_count = ?,
+          defect_count = ?, pallet_rejected = COALESCE(?, pallet_rejected)
+      WHERE id = ?
+    `);
+    const insertDefect = this.db.prepare(`
+      INSERT INTO line_sample_pull_defects (pull_id, reason_id, count, notes)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    this.db.exec('BEGIN');
+    try {
+      updatePull.run(
+        data.date, slot.start_time, slot.end_time, Number(data.slot_id), Number(data.line_id),
+        Number(data.product_id), Number(data.station_id), Number(data.inspector_id),
+        additional.inspectorId, sampleCount, additional.sampleCount, totalDefects, palletRejected, pullId
+      );
+      this.db.prepare('DELETE FROM line_sample_pull_defects WHERE pull_id = ?').run(pullId);
+      normalizedDefects.forEach(defect => {
+        insertDefect.run(pullId, Number(defect.reason_id), Number(defect.count), String(defect.notes || '').trim() || null);
+      });
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+
+    this.logAudit(currentUserId, currentUserName, 'UPDATE', 'line_sample_pulls', pullId, `تعديل سحبة عينات رقم ${pullId}`);
+    return this.getLineSamplePulls({}).find(pull => Number(pull.id) === pullId);
+  }
+
+  deleteLineSamplePull(id, currentUserId, currentUserName) {
+    const pull = this.db.prepare('SELECT id FROM line_sample_pulls WHERE id = ?').get(id);
+    if (!pull) throw new Error('سحبة العينات غير موجودة.');
+    this.db.prepare('DELETE FROM line_sample_pulls WHERE id = ?').run(id);
+    this.logAudit(currentUserId, currentUserName, 'DELETE', 'line_sample_pulls', id, `حذف سحبة عينات رقم ${id}`);
+    return true;
+  }
+
+  // ==========================================
+  // HOURLY SAMPLES INSPECTION API
+  // ==========================================
+  getHourlySamples(filters = {}) {
+    let sql = `
+      SELECT h.*,
+             l.line_number, l.name as line_name, l.supervisor_name,
+             prod.name as product_name, prod.code as product_code, prod.unit as product_unit,
+             s.name as shift_name,
+             slot.slot_name, slot.start_time, slot.end_time,
+             i.name as inspector_name,
+             u.full_name as created_by_name,
+             CASE
+               WHEN h.sample_count > 0 THEN ROUND((CAST(h.defect_count AS FLOAT) / h.sample_count) * 100, 2)
+               ELSE 0.0
+             END as defect_rate
+      FROM hourly_samples h
+      JOIN production_lines l ON h.line_id = l.id
+      JOIN products prod ON h.product_id = prod.id
+      JOIN shifts s ON h.shift_id = s.id
+      JOIN hourly_sample_slots slot ON h.slot_id = slot.id
+      LEFT JOIN quality_inspectors i ON h.inspector_id = i.id
+      LEFT JOIN users u ON h.created_by = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (filters.date) { sql += ' AND h.date = ?'; params.push(filters.date); }
+    if (filters.date_from) { sql += ' AND h.date >= ?'; params.push(filters.date_from); }
+    if (filters.date_to) { sql += ' AND h.date <= ?'; params.push(filters.date_to); }
+    if (filters.slot_id) { sql += ' AND h.slot_id = ?'; params.push(parseInt(filters.slot_id, 10)); }
+    if (filters.line_id) { sql += ' AND h.line_id = ?'; params.push(parseInt(filters.line_id, 10)); }
+    if (filters.product_id) { sql += ' AND h.product_id = ?'; params.push(parseInt(filters.product_id, 10)); }
+    if (filters.shift_id) { sql += ' AND h.shift_id = ?'; params.push(parseInt(filters.shift_id, 10)); }
+    if (filters.department && filters.department !== 'all') {
+      sql += ' AND (h.department = ? OR l.department = ?)';
+      params.push(filters.department, filters.department);
+    }
+    sql += ' ORDER BY h.date DESC, slot.display_order DESC, h.id DESC';
+
+    const samples = this.db.prepare(sql).all(...params);
+
+    return samples.map(s => {
+      const defects = this.db.prepare(`
+        SELECT d.reason_id, rr.name as reason_name, d.count, d.notes
+        FROM hourly_sample_defects d
+        JOIN rejection_reasons rr ON d.reason_id = rr.id
+        WHERE d.hourly_sample_id = ?
+      `).all(s.id);
+      const summary = defects.map(d => `${d.reason_name} (${d.count})`).join('، ');
+      return {
+        ...s,
+        defects_breakdown: defects,
+        defects_summary: summary || (s.defect_count > 0 ? `${s.defect_count} عيب مسجل` : 'لا توجد عيوب')
+      };
+    });
+  }
+
+  getHourlySampleById(id) {
+    const s = this.db.prepare(`
+      SELECT h.*,
+             l.line_number, l.name as line_name,
+             prod.name as product_name, prod.code as product_code,
+             s.name as shift_name, slot.slot_name, i.name as inspector_name
+      FROM hourly_samples h
+      JOIN production_lines l ON h.line_id = l.id
+      JOIN products prod ON h.product_id = prod.id
+      JOIN shifts s ON h.shift_id = s.id
+      JOIN hourly_sample_slots slot ON h.slot_id = slot.id
+      LEFT JOIN quality_inspectors i ON h.inspector_id = i.id
+      WHERE h.id = ?
+    `).get(id);
+    if (!s) return null;
+    const defects = this.db.prepare(`
+      SELECT d.*, rr.name as reason_name
+      FROM hourly_sample_defects d
+      JOIN rejection_reasons rr ON d.reason_id = rr.id
+      WHERE d.hourly_sample_id = ?
+    `).all(id);
+    return { ...s, defects_breakdown: defects };
+  }
+
+  saveHourlySample(data, currentUserId, currentUserName) {
+    const date = data.date || new Date().toISOString().slice(0, 10);
+    const sampleCount = parseInt(data.sample_count || 0, 10);
+    const defectCount = parseInt(data.defect_count || 0, 10);
+    const decision = data.decision || (defectCount === 0 ? 'مقبول' : 'تحت الملاحظة');
+
+    const line = this.getLineById(data.line_id);
+    const department = data.department || (line ? line.department : 'home');
+
+    let sampleId = data.id ? parseInt(data.id, 10) : null;
+
+    if (sampleId) {
+      this.db.prepare(`
+        UPDATE hourly_samples
+        SET date = ?, slot_id = ?, line_id = ?, product_id = ?, shift_id = ?,
+            inspector_id = ?, sample_count = ?, defect_count = ?, decision = ?,
+            notes = ?, department = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        date,
+        parseInt(data.slot_id, 10),
+        parseInt(data.line_id, 10),
+        parseInt(data.product_id, 10),
+        parseInt(data.shift_id, 10),
+        data.inspector_id ? parseInt(data.inspector_id, 10) : null,
+        sampleCount,
+        defectCount,
+        decision,
+        data.notes || null,
+        department,
+        sampleId
+      );
+      this.db.prepare('DELETE FROM hourly_sample_defects WHERE hourly_sample_id = ?').run(sampleId);
+    } else {
+      const res = this.db.prepare(`
+        INSERT INTO hourly_samples (
+          date, slot_id, line_id, product_id, shift_id, inspector_id,
+          sample_count, defect_count, decision, notes, department, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        date,
+        parseInt(data.slot_id, 10),
+        parseInt(data.line_id, 10),
+        parseInt(data.product_id, 10),
+        parseInt(data.shift_id, 10),
+        data.inspector_id ? parseInt(data.inspector_id, 10) : null,
+        sampleCount,
+        defectCount,
+        decision,
+        data.notes || null,
+        department,
+        currentUserId || null
+      );
+      sampleId = res.lastInsertRowid;
+    }
+
+    if (Array.isArray(data.defects)) {
+      const insertDefect = this.db.prepare(`
+        INSERT INTO hourly_sample_defects (hourly_sample_id, reason_id, count, notes)
+        VALUES (?, ?, ?, ?)
+      `);
+      for (const d of data.defects) {
+        if (d.reason_id && parseInt(d.count || 0, 10) > 0) {
+          insertDefect.run(sampleId, parseInt(d.reason_id, 10), parseInt(d.count, 10), d.notes || null);
+        }
+      }
+    }
+
+    this.logAudit(currentUserId, currentUserName, sampleId ? 'UPDATE' : 'CREATE', 'hourly_samples', sampleId, `تسجيل فحص عينة ساعة (${sampleCount} عينة، ${defectCount} عيوب)`);
+    return this.getHourlySampleById(sampleId);
+  }
+
+  deleteHourlySample(id, currentUserId, currentUserName) {
+    this.db.prepare('DELETE FROM hourly_samples WHERE id = ?').run(id);
+    this.logAudit(currentUserId, currentUserName, 'DELETE', 'hourly_samples', id, `حذف فحص عينة ساعة رقم ${id}`);
+    return true;
+  }
+
+  // ==========================================
+  // DAILY PRODUCTION ENTRY (END OF DAY ACTUAL PRODUCTION)
+  // ==========================================
+  getDailyLineProduction(filters = {}) {
+    let sql = `
+      SELECT dp.*,
+             l.line_number, l.name as line_name, l.supervisor_name,
+             prod.name as product_name, prod.code as product_code, prod.unit as product_unit,
+             s.name as shift_name,
+             u.full_name as entered_by_name
+      FROM daily_line_production dp
+      JOIN production_lines l ON dp.line_id = l.id
+      JOIN products prod ON dp.product_id = prod.id
+      LEFT JOIN shifts s ON dp.shift_id = s.id
+      LEFT JOIN users u ON dp.entered_by = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (filters.date) { sql += ' AND dp.date = ?'; params.push(filters.date); }
+    if (filters.line_id) { sql += ' AND dp.line_id = ?'; params.push(parseInt(filters.line_id, 10)); }
+    if (filters.product_id) { sql += ' AND dp.product_id = ?'; params.push(parseInt(filters.product_id, 10)); }
+    if (filters.department && filters.department !== 'all') {
+      sql += ' AND (dp.department = ? OR l.department = ?)';
+      params.push(filters.department, filters.department);
+    }
+    sql += ' ORDER BY dp.date DESC, l.line_number ASC';
+    return this.db.prepare(sql).all(...params);
+  }
+
+  saveDailyLineProduction(data, currentUserId, currentUserName) {
+    const date = data.date || new Date().toISOString().slice(0, 10);
+    const lineId = parseInt(data.line_id, 10);
+    const productId = parseInt(data.product_id, 10);
+    const shiftId = data.shift_id ? parseInt(data.shift_id, 10) : null;
+    const qty = parseInt(data.total_produced_qty || 0, 10);
+
+    const line = this.getLineById(lineId);
+    const department = data.department || (line ? line.department : 'home');
+
+    const stmt = this.db.prepare(`
+      INSERT INTO daily_line_production (date, line_id, product_id, shift_id, total_produced_qty, notes, department, entered_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(date, line_id, product_id, shift_id) DO UPDATE SET
+        total_produced_qty = excluded.total_produced_qty,
+        notes = excluded.notes,
+        department = excluded.department,
+        entered_by = excluded.entered_by,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+
+    stmt.run(date, lineId, productId, shiftId, qty, data.notes || null, department, currentUserId || null);
+    this.logAudit(currentUserId, currentUserName, 'SAVE_PROD', 'daily_line_production', lineId, `تسجيل إجمالي إنتاج اليوم: ${qty} وحدة على خط ${line?.line_number || lineId}`);
+    return this.getDailyLineProduction({ date, line_id: lineId, product_id: productId })[0];
+  }
+
+  // ==========================================
+  // FLOWCHART & SYSTEM-WIDE DEEP ANALYTICS
+  // ==========================================
+  getFlowchartMetrics(filters = {}) {
+    let wherePallets = 'WHERE 1=1';
+    let whereHourly = 'WHERE 1=1';
+    const paramsPallets = [];
+    const paramsHourly = [];
+
+    const dateFrom = filters.date_from || (filters.date ? filters.date : null);
+    const dateTo = filters.date_to || (filters.date ? filters.date : null);
+
+    if (dateFrom) {
+      wherePallets += ' AND p.date >= ?'; paramsPallets.push(dateFrom);
+      whereHourly += ' AND h.date >= ?'; paramsHourly.push(dateFrom);
+    }
+    if (dateTo) {
+      wherePallets += ' AND p.date <= ?'; paramsPallets.push(dateTo);
+      whereHourly += ' AND h.date <= ?'; paramsHourly.push(dateTo);
+    }
+    if (filters.line_id) {
+      wherePallets += ' AND p.line_id = ?'; paramsPallets.push(parseInt(filters.line_id, 10));
+      whereHourly += ' AND h.line_id = ?'; paramsHourly.push(parseInt(filters.line_id, 10));
+    }
+    if (filters.product_id) {
+      wherePallets += ' AND p.product_id = ?'; paramsPallets.push(parseInt(filters.product_id, 10));
+      whereHourly += ' AND h.product_id = ?'; paramsHourly.push(parseInt(filters.product_id, 10));
+    }
+    if (filters.shift_id) {
+      wherePallets += ' AND p.shift_id = ?'; paramsPallets.push(parseInt(filters.shift_id, 10));
+      whereHourly += ' AND h.shift_id = ?'; paramsHourly.push(parseInt(filters.shift_id, 10));
+    }
+    if (filters.department && filters.department !== 'all') {
+      wherePallets += ' AND (p.department = ? OR l.department = ?)'; paramsPallets.push(filters.department, filters.department);
+      whereHourly += ' AND (h.department = ? OR l.department = ?)'; paramsHourly.push(filters.department, filters.department);
+    }
+
+    // 1. Pipeline Stages Aggregate:
+    const palletProd = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(p.quantity_on_pallet), 0) as total_units_produced,
+        COUNT(p.id) as total_pallets,
+        COALESCE(SUM(p.inspected_quantity), 0) as total_samples_inspected,
+        COALESCE(SUM(p.rejected_quantity), 0) as total_defects,
+        COALESCE(SUM(CASE WHEN p.pallet_decision = 'مقبول' THEN p.quantity_on_pallet ELSE 0 END), 0) as accepted_units,
+        COALESCE(SUM(CASE WHEN p.pallet_decision = 'مرفوض' THEN p.quantity_on_pallet ELSE 0 END), 0) as rejected_units,
+        COALESCE(SUM(CASE WHEN p.pallet_decision = 'مقبول' THEN 1 ELSE 0 END), 0) as accepted_pallets,
+        COALESCE(SUM(CASE WHEN p.pallet_decision = 'مرفوض' THEN 1 ELSE 0 END), 0) as rejected_pallets
+      FROM pallets p
+      JOIN production_lines l ON p.line_id = l.id
+      ${wherePallets}
+    `).get(...paramsPallets);
+
+    const hourlyStats = this.db.prepare(`
+      SELECT
+        COUNT(h.id) as total_hourly_pulls,
+        COALESCE(SUM(h.sample_count), 0) as total_hourly_samples,
+        COALESCE(SUM(h.defect_count), 0) as total_hourly_defects,
+        COALESCE(SUM(CASE WHEN h.decision = 'مقبول' THEN 1 ELSE 0 END), 0) as accepted_pulls,
+        COALESCE(SUM(CASE WHEN h.decision = 'مرفوض' THEN 1 ELSE 0 END), 0) as rejected_pulls
+      FROM hourly_samples h
+      JOIN production_lines l ON h.line_id = l.id
+      ${whereHourly}
+    `).get(...paramsHourly);
+
+    const dailyProdStats = this.db.prepare(`
+      SELECT COALESCE(SUM(dp.total_produced_qty), 0) as total_daily_entered
+      FROM daily_line_production dp
+      WHERE 1=1 ${dateFrom ? 'AND dp.date >= ?' : ''} ${dateTo ? 'AND dp.date <= ?' : ''}
+    `).get(...[dateFrom, dateTo].filter(Boolean));
+
+    const totalProducedUnits = (palletProd?.total_units_produced || 0) + (dailyProdStats?.total_daily_entered || 0);
+    const totalSamplesInspected = (palletProd?.total_samples_inspected || 0) + (hourlyStats?.total_hourly_samples || 0);
+    const totalDefects = (palletProd?.total_defects || 0) + (hourlyStats?.total_hourly_defects || 0);
+    const totalConformingSamples = Math.max(0, totalSamplesInspected - totalDefects);
+    const overallDefectRate = totalSamplesInspected > 0 ? parseFloat(((totalDefects / totalSamplesInspected) * 100).toFixed(2)) : 0.0;
+    const overallAcceptRate = parseFloat((100 - overallDefectRate).toFixed(2));
+
+    // 2. Line by Line Comparison:
+    const lines = this.getAllLines(filters.department, true);
+    const lineStats = lines.map(line => {
+      const pStats = this.db.prepare(`
+        SELECT
+          COALESCE(SUM(p.quantity_on_pallet), 0) as produced,
+          COALESCE(SUM(p.inspected_quantity), 0) as inspected,
+          COALESCE(SUM(p.rejected_quantity), 0) as defects,
+          COALESCE(SUM(CASE WHEN p.pallet_decision = 'مقبول' THEN 1 ELSE 0 END), 0) as acc_pallets,
+          COALESCE(SUM(CASE WHEN p.pallet_decision = 'مرفوض' THEN 1 ELSE 0 END), 0) as rej_pallets,
+          COUNT(p.id) as pallets_count,
+          GROUP_CONCAT(DISTINCT prod.name) as products_names
+        FROM pallets p
+        JOIN products prod ON p.product_id = prod.id
+        WHERE p.line_id = ? ${dateFrom ? 'AND p.date >= ?' : ''} ${dateTo ? 'AND p.date <= ?' : ''}
+      `).get(...[line.id, dateFrom, dateTo].filter(v => v !== null && v !== undefined));
+
+      const hStats = this.db.prepare(`
+        SELECT
+          COALESCE(SUM(sample_count), 0) as samples,
+          COALESCE(SUM(defect_count), 0) as defects,
+          GROUP_CONCAT(DISTINCT prod.name) as products_names
+        FROM hourly_samples h
+        JOIN products prod ON h.product_id = prod.id
+        WHERE h.line_id = ? ${dateFrom ? 'AND h.date >= ?' : ''} ${dateTo ? 'AND h.date <= ?' : ''}
+      `).get(...[line.id, dateFrom, dateTo].filter(v => v !== null && v !== undefined));
+
+      const totalLineInspected = (pStats?.inspected || 0) + (hStats?.samples || 0);
+      const totalLineDefects = (pStats?.defects || 0) + (hStats?.defects || 0);
+      const lineDefectRate = totalLineInspected > 0
+        ? parseFloat(((totalLineDefects / totalLineInspected) * 100).toFixed(2))
+        : 0.0;
+      const lineAcceptRate = parseFloat((100 - lineDefectRate).toFixed(2));
+
+      const topReason = this.db.prepare(`
+        SELECT rr.name, SUM(pri.count) as c
+        FROM pallet_rejection_items pri
+        JOIN pallets p ON pri.pallet_id = p.id
+        JOIN rejection_reasons rr ON pri.reason_id = rr.id
+        WHERE p.line_id = ? ${dateFrom ? 'AND p.date >= ?' : ''} ${dateTo ? 'AND p.date <= ?' : ''}
+        GROUP BY rr.id
+        ORDER BY c DESC LIMIT 1
+      `).get(...[line.id, dateFrom, dateTo].filter(v => v !== null && v !== undefined));
+
+      const allProds = [pStats?.products_names, hStats?.products_names, line.current_product_name]
+        .filter(Boolean)
+        .join('، ');
+
+      return {
+        line_id: line.id,
+        line_number: line.line_number,
+        line_name: line.name,
+        supervisor_name: line.supervisor_name,
+        product_name: allProds || 'غير محدد',
+        total_produced: (pStats?.produced || 0),
+        total_inspected: totalLineInspected,
+        total_defects: totalLineDefects,
+        defect_rate: lineDefectRate,
+        accept_rate: lineAcceptRate,
+        pallets_count: pStats?.pallets_count || 0,
+        accepted_pallets: pStats?.acc_pallets || 0,
+        rejected_pallets: pStats?.rej_pallets || 0,
+        top_defect_reason: topReason ? `${topReason.name} (${topReason.c})` : 'لا توجد عيوب',
+        has_activity: totalLineInspected > 0 || (pStats?.produced || 0) > 0
+      };
+    });
+
+    const activeLines = lineStats.filter(l => l.has_activity);
+    let bestLine = null;
+    let worstLine = null;
+
+    if (activeLines.length > 0) {
+      const sortedForBest = [...activeLines].sort((a, b) => a.defect_rate - b.defect_rate || b.total_inspected - a.total_inspected);
+      bestLine = sortedForBest[0];
+
+      const sortedForWorst = [...activeLines].sort((a, b) => b.defect_rate - a.defect_rate || b.total_defects - a.total_defects);
+      worstLine = sortedForWorst[0];
+    } else if (lineStats.length > 0) {
+      bestLine = lineStats[0];
+      worstLine = lineStats[lineStats.length - 1];
+    }
+
+    const pareto = this.db.prepare(`
+      SELECT rr.name as reason_name, SUM(pri.count) as defect_count
+      FROM pallet_rejection_items pri
+      JOIN pallets p ON pri.pallet_id = p.id
+      JOIN rejection_reasons rr ON pri.reason_id = rr.id
+      JOIN production_lines l ON p.line_id = l.id
+      ${wherePallets}
+      GROUP BY rr.id
+      ORDER BY defect_count DESC
+      LIMIT 10
+    `).all(...paramsPallets);
+
+    const shiftComparison = this.db.prepare(`
+      SELECT s.id as shift_id, s.name as shift_name,
+             COALESCE(SUM(p.quantity_on_pallet), 0) as total_produced,
+             COALESCE(SUM(p.inspected_quantity), 0) as inspected,
+             COALESCE(SUM(p.rejected_quantity), 0) as defects,
+             CASE
+               WHEN SUM(p.inspected_quantity) > 0 THEN ROUND((CAST(SUM(p.rejected_quantity) AS FLOAT) / SUM(p.inspected_quantity)) * 100, 2)
+               ELSE 0.0
+             END as defect_rate
+      FROM shifts s
+      LEFT JOIN pallets p ON s.id = p.shift_id ${dateFrom ? 'AND p.date >= ?' : ''} ${dateTo ? 'AND p.date <= ?' : ''}
+      GROUP BY s.id
+      ORDER BY s.id ASC
+    `).all(...[dateFrom, dateTo].filter(Boolean));
+
+    return {
+      pipeline_stages: {
+        stage1_production: {
+          label: 'وارد الإنتاج من الخطوط',
+          total_units: totalProducedUnits,
+          pallets_count: palletProd?.total_pallets || 0,
+          description: 'إجمالي الكميات الواردة من خطوط التجميع'
+        },
+        stage2_inspection: {
+          label: 'سحب وفحص العينات (AQL + بالساعة)',
+          total_samples: totalSamplesInspected,
+          aql_samples: palletProd?.total_samples_inspected || 0,
+          hourly_samples: hourlyStats?.total_hourly_samples || 0,
+          hourly_pulls: hourlyStats?.total_hourly_pulls || 0,
+          description: 'العينات الإحصائية المسحوبة للفحص والاختبار'
+        },
+        stage3_defects: {
+          label: 'تحليل العيوب والمطابقة',
+          conforming_samples: totalConformingSamples,
+          defective_samples: totalDefects,
+          overall_defect_rate: overallDefectRate,
+          overall_accept_rate: overallAcceptRate,
+          description: 'نسب التوافق الفني وكشف العيوب المصنعية'
+        },
+        stage4_decision: {
+          label: 'قرار الاعتماد النهائي',
+          accepted_units: palletProd?.accepted_units || 0,
+          rejected_units: palletProd?.rejected_units || 0,
+          accepted_pallets: palletProd?.accepted_pallets || 0,
+          rejected_pallets: palletProd?.rejected_pallets || 0,
+          description: 'البلتات والوحدات المعتمدة للمستودع مقابل المحجوزة'
+        }
+      },
+      best_line: bestLine,
+      worst_line: worstLine,
+      line_rankings: lineStats.sort((a, b) => a.defect_rate - b.defect_rate),
+      pareto_defects: pareto,
+      shift_comparison: shiftComparison
+    };
   }
 }
 
